@@ -3,7 +3,7 @@ import albumentations as A
 import tensorflow as tf
 import numpy as np
 import cv2
-from data.dataloader import *
+from data.utils import *
 
 
 class DataGen(tf.keras.utils.Sequence):
@@ -26,6 +26,8 @@ class DataGen(tf.keras.utils.Sequence):
               A.HorizontalFlip(p=0.5),
               A.RandomBrightnessContrast(p=0.2), ],
               additional_targets={"image1": "image"}
+              additional_targets={"mask1": "mask"}
+
 
          )
  
@@ -33,20 +35,24 @@ class DataGen(tf.keras.utils.Sequence):
         pre_dis=cv2.imread(self.pre_dis_files[i],cv2.IMREAD_COLOR)
         post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
         post_target=create_inference_image(self.post_target_files[i])
-        #post_target[post_target==5]=1
-    
+        pre_target=create_inference_image(self.pre_target_files[i])
 
-        transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target)
+        #post_target[post_target==5]=1
+
+        transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
+
         pre_dis_aug = transformed['image']
         post_dis_aug = transformed['image1']
         post_target_aug = transformed['mask']
+        pre_target_aug = transformed['mask1']
 
         post_target_aug=get_encoded(post_target_aug)
         post_target_aug=np.float32(post_target_aug)
+        pre_target_aug=np.float32(pre_target_aug)
 
         post_dis_aug=np.float32(post_dis_aug/255)
         pre_dis_aug=np.float32(pre_dis_aug/255)
-        return pre_dis_aug,post_dis_aug,post_target_aug
+        return pre_dis_aug,post_dis_aug,pre_target_aug,post_target_aug
 
 
 
@@ -55,17 +61,21 @@ class DataGen(tf.keras.utils.Sequence):
         i_end=index_interval[1]
         batch_pres=[]
         batch_posts=[]
-        batch_targets=[]
+        batch_post_targets=[]
+        batch_pre_targets=[]
+
         for i in range(i_start,i_end):
-          pre_dis,post_dis,post_target=self.__load_data__(i)
+          pre_dis,post_dis,pre_target,post_target=self.__load_data__(i)
           batch_pres.append(pre_dis)
           batch_posts.append(post_dis)
-          batch_targets.append(post_target)
-        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_targets)
+          batch_post_targets.append(post_target)
+          batch_pre_targets.append(pre_target)
+
+        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_pre_targets),np.asarray(batch_post_targets)
 
     def __getitem__(self, index):
-        pres,posts,targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
-        return (pres,posts),targets
+        pres,posts,pre_targets,post_targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
+        return (pres,posts),(pre_targets,post_targets)
     
     def __len__(self):
         return self.n // self.batch_size
