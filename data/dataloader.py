@@ -25,7 +25,7 @@ class DataGen(tf.keras.utils.Sequence):
               A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
               A.HorizontalFlip(p=0.5),
               A.RandomBrightnessContrast(p=0.2), ],
-              additional_targets={"image1": "image"}
+              additional_targets={"image1": "image"},
               additional_targets={"mask1": "mask"}
 
 
