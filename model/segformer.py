@@ -490,18 +490,21 @@ class TFSegformerDecodeHead(tf.keras.Model):
         self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1, name="classifier")
 
 
-    def call(self, encoder_hidden_states, training: bool = True):
+    def call(self, encoder_hidden_states,unet_hidden_states, training: bool = True):
         batch_size = tf.shape(encoder_hidden_states[-1])[0]
 
         all_hidden_states = ()
-        for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.mlps):
+        for idx,(encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.mlps)):
             if self.config.reshape_last_stage is False and len(tf.shape(encoder_hidden_state)) == 3:
                 height = tf.math.sqrt(tf.cast(tf.shape(encoder_hidden_state)[1], tf.float32))
                 height = width = tf.cast(height, tf.int32)
                 encoder_hidden_state = tf.reshape(encoder_hidden_state, (batch_size, height, width, -1))
 
             # unify channel dimension
+            
+
             encoder_hidden_state = tf.transpose(encoder_hidden_state, perm=[0, 2, 3, 1])
+            encoder_hidden_state=tf.concat([encoder_hidden_state,unet_hidden_states[idx]],axis=-1)
             height = tf.shape(encoder_hidden_state)[1]
             width = tf.shape(encoder_hidden_state)[2]
             encoder_hidden_state = mlp(encoder_hidden_state)
@@ -533,6 +536,7 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
     def call(
         self,
         pixel_values: tf.Tensor,
+        unet_hidden_states,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
@@ -552,7 +556,7 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
 
         encoder_hidden_states = outputs[1] 
 
-        logits = self.decode_head(encoder_hidden_states)
+        logits = self.decode_head(encoder_hidden_states,unet_hidden_states)
 
         if not return_dict:
             if output_hidden_states:
@@ -564,18 +568,3 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
         return logits
     
 
-"""
-from omegaconf import OmegaConf
-SegformerConfig={
-     "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],
-      "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,
-      "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,"hidden_act" : 'gelu', "hidden_dropout_prob" : 0.0,
-      "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,
-      "classifier_dropout_prob" : 0.1 ,"initializer_range" : 0.02,"use_return_dict":True,"classifier_dropout_prob":0.0,
-      "drop_path_rate" : 0.1, "layer_norm_eps" : 1e-06,"reshape_last_stage":True,
-      "decoder_hidden_size" : 256, "semantic_loss_ignore_index" : 255,"num_labels":5,"unet_num_res_blocks":3
-
-}
-
-conf = OmegaConf.structured(SegformerConfig)
-"""

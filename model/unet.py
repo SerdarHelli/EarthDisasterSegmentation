@@ -159,7 +159,6 @@ class UNet(tf.keras.Model):
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
-                  print(x.shape)
 
         x=self.batch_norm(tf.nn.relu(x))
         x=self.final_layer(x)
