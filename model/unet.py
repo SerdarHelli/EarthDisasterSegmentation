@@ -1,124 +1,166 @@
 
-from data.dataloader import *
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-from model.layers import *
-
-def build_unet_model(
-    input_shape,
-    context_shape,
-    channel_multiplier,
-    has_attention,
-    patch_size,
-    num_patches,
-    transformer_layers,
-    projection_dim,
-    num_heads,
-    transformer_units,
-    mlp_head_units,
-    num_res_blocks=2,
-    activation_fn=keras.activations.swish,
-    first_conv_channels=64,
-    use_spatial_transformer=True,
-):
 
 
-    widths = [first_conv_channels * mult for mult in channel_multiplier]
-    pre_disaster_image= layers.Input(
-        shape=context_shape, name="pre_img"
-    )
-
-    post_disaster_image = layers.Input(
-        shape=input_shape, name="post_img"
-    )
-
-    context=layers.Conv2D(
-        first_conv_channels,
-        kernel_size=3,
-        padding="same",
-        kernel_initializer=kernel_init(1.0),
-    )(pre_disaster_image)
-
-    x=layers.Concatenate()([pre_disaster_image,post_disaster_image])
-    x = layers.Conv2D(
-        first_conv_channels,
-        kernel_size=3,
-        padding="same",
-        kernel_initializer=kernel_init(1.0),
-    )(x)
 
 
-    skips = [x]
+class ResBlock(tf.keras.layers.Layer):
+    def __init__(self, filters, **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
 
-    # DownBlock
-    for i in range(len(widths)):
-        for _ in range(num_res_blocks):
-            x = ResidualBlock(
-                widths[i], activation_fn=activation_fn
-            )(x)
-            if has_attention[i]:
-                if use_spatial_transformer==True:
-                    x = SpatialTransformer(widths[i])([x,context])
-                else:
-                    context_x=ReScaler(orig_shape=tf.shape(x))(context)
-                    x = CrossAttentionBlock(widths[i])([x,context_x])
+    def build(self, input_shape):
+        self.input_shape=input_shape
+        input_filter = input_shape[-1]
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+        self.learned_skip = False
+        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.batch_norm2 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
 
-            skips.append(x)
+        if self.filters != input_filter:
+            self.learned_skip = True
+            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+            self.batch_norm3 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
 
-        if widths[i] != widths[-1]:
-            x = DownSample(widths[i])(x)
-            skips.append(x)
+    def call(self, input_tensor: tf.Tensor):
+        x = self.batch_norm1(input_tensor)
+        x = self.conv_1(tf.nn.relu(x))
+        x = self.batch_norm2(x)
+        x = self.conv_2(tf.nn.relu(x))
+        skip = (
+            self.conv_3(tf.nn.relu(self.batch_norm3(input_tensor)))
+            if self.learned_skip
+            else input_tensor
+        )
+        output = skip + x
 
-    # MiddleBlock
-    x = ResidualBlock(widths[-1] ,activation_fn=activation_fn)(
-        x
-    )
-    if np.sum(np.asarray(has_attention)):
-        if use_spatial_transformer==True:
-            x = SpatialTransformer(widths[-1])([x,context])
-        else:
-            context_x=ReScaler(orig_shape=tf.shape(x))(context)
-            x = CrossAttentionBlock(widths[-1])([x,context_x])
+        return output
 
-    x = ResidualBlock(widths[-1], activation_fn=activation_fn)(x)
+    def get_config(self):
+        config = super().get_config()
+        config.update({"shape": self.input_shape})
+        return config
+
+class ResBlock(tf.keras.layers.Layer):
+    def __init__(self, filters, **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+        self.learned_skip = False
+        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.batch_norm2 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+
+        if self.filters != input_filter:
+            self.learned_skip = True
+            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
+            self.batch_norm3 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+
+    def call(self, input_tensor: tf.Tensor):
+        x = self.batch_norm1(input_tensor)
+        x = self.conv_1(tf.nn.relu(x))
+        x = self.batch_norm2(x)
+        x = self.conv_2(tf.nn.relu(x))
+        skip = (
+            self.conv_3(tf.nn.relu(self.batch_norm3(input_tensor)))
+            if self.learned_skip
+            else input_tensor
+        )
+        output = skip + x
+
+
+        return output
+
+
+class UpSample(tf.keras.layers.Layer):
+    def __init__(self, filters, **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+
+    def build(self, input_shape):
+        self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2))
+        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+
+    def call(self, input_tensor: tf.Tensor):
+        x = self.conv_1(input_tensor)
+        x = self.batch_norm1(x)
+        return tf.nn.relu(x)
+
+
+
+
+
+class UNet(tf.keras.Model):
+    def __init__(self, config, **kwargs):
+        super().__init__(**kwargs)
+        self.config = config
+        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
+        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+
+    def build(self,input_shape):
+
+        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same")
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.config.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ResBlock(hidden_size)
+                    self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+
        
 
-    # UpBlock
-    for i in reversed(range(len(widths))):
-        for _ in range(num_res_blocks + 1):
-            x = layers.Concatenate(axis=-1)([x, skips.pop()])
-            x = ResidualBlock(
-                widths[i],activation_fn=activation_fn
-            )(x)
-            if has_attention[i]:
-                if use_spatial_transformer==True:
-                    x = SpatialTransformer(widths[i])([x,context])
-                else:
-                    context_x=ReScaler(orig_shape=tf.shape(x))(context)
-                    x = CrossAttentionBlock(widths[i])([x,context_x])
+        self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1]),
+                            ResBlock(self.unet_hidden_sizes[-1])
+        ]
 
-        if i != 0:
-            x = UpSample(widths[i],activation_fn=activation_fn)(x)
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.config.unet_num_res_blocks):
+                    x = ResBlock(hidden_size)
+                    self.decoder_blocks.append(x)
+                
+                if i!=0:
 
-    # End block
-    
-    x = normalize(x)
-    x = activation_fn(x)
-    local_output = layers.Conv2D(1, 1, padding="same", kernel_initializer=kernel_init(0.0),activation="sigmoid")(x)
+                   x = UpSample(hidden_size)
+                   self.decoder_blocks.append(x)
 
-    y=layers.Concatenate()([local_output,pre_disaster_image,post_disaster_image])
-    y=vit(y,patch_size,num_patches,transformer_layers,projection_dim,num_heads,transformer_units,mlp_head_units)
-    # Create a [batch_size, projection_dim] tensor.
-    y=layers.Reshape((128, 128,4))(y)
-    y = layers.UpSampling2D(size=(4, 4), interpolation='bilinear')(y)
-    y=layers.multiply([y,local_output])
+        self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same")
 
-    y = ResidualBlock(
-                    16,activation_fn=activation_fn
-                )(y)
-    multi_output = layers.Conv2D(5, 1, padding="same", kernel_initializer=kernel_init(0.0),activation="sigmoid")(y)
-    return keras.Model([pre_disaster_image,post_disaster_image ], [local_output,multi_output], name="spatial_condition_unet")
+    def call(self, input_tensor: tf.Tensor):
+        input_shape=tf.shape(input_tensor)
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        hidden_states=[]
+        for block in self.encoder_blocks:
+            x=block(x)
+            skips.append(x)
+        for block in self.middle_blocks:
+            x=block(x)
 
+        for idx,block in enumerate(self.decoder_blocks):
+            if idx in self.concat_idx[:-1]:
+                  hidden_states.append(x)
+       
+            x=block(x)
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+                  print(x.shape)
 
-
+        x=self.batch_norm(tf.nn.relu(x))
+        x=self.final_layer(x)
+        return x,hidden_states

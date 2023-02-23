@@ -315,7 +315,7 @@ class TFSegformerLayer(tf.keras.layers.Layer):
     
 
 
-class TFSegformerEncoder(tf.keras.layers.Layer):
+class TFSegformerEncoder(tf.keras.Model):
     def __init__(self, config,**kwargs):
         super().__init__(**kwargs)
         self.config=config
@@ -416,7 +416,7 @@ class TFSegformerEncoder(tf.keras.layers.Layer):
         return hidden_states, all_hidden_states, all_self_attentions
 
 
-class TFSegformerMainLayer(tf.keras.layers.Layer):
+class TFSegformerMainLayer(tf.keras.Model):
 
     def __init__(self,config,  **kwargs):
         super().__init__(**kwargs)
@@ -468,7 +468,7 @@ class TFSegformerMainLayer(tf.keras.layers.Layer):
         return sequence_output,hidden_states,encoder_outputs[-1]
           
 
-class TFSegformerDecodeHead(tf.keras.layers.Layer):
+class TFSegformerDecodeHead(tf.keras.Model):
     def __init__(self,config, **kwargs):
         super().__init__( **kwargs)
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
@@ -523,7 +523,7 @@ class TFSegformerDecodeHead(tf.keras.layers.Layer):
 
         return logits
     
-class TFSegformerForSemanticSegmentation(tf.keras.layers.Layer):
+class TFSegformerForSemanticSegmentation(tf.keras.Model):
     def __init__(self, config, **kwargs):
         super().__init__( **kwargs)
         self.segformer = TFSegformerMainLayer(config, name="segformer")
@@ -563,6 +563,9 @@ class TFSegformerForSemanticSegmentation(tf.keras.layers.Layer):
 
         return logits
     
+
+"""
+from omegaconf import OmegaConf
 SegformerConfig={
      "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],
       "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,
@@ -570,6 +573,9 @@ SegformerConfig={
       "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,
       "classifier_dropout_prob" : 0.1 ,"initializer_range" : 0.02,"use_return_dict":True,"classifier_dropout_prob":0.0,
       "drop_path_rate" : 0.1, "layer_norm_eps" : 1e-06,"reshape_last_stage":True,
-      "decoder_hidden_size" : 256, "semantic_loss_ignore_index" : 255,"num_labels":5
+      "decoder_hidden_size" : 256, "semantic_loss_ignore_index" : 255,"num_labels":5,"unet_num_res_blocks":3
 
 }
+
+conf = OmegaConf.structured(SegformerConfig)
+"""
