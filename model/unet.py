@@ -162,4 +162,5 @@ class UNet(tf.keras.Model):
 
         x=self.batch_norm(tf.nn.relu(x))
         x=self.final_layer(x)
+        hidden_states.reverse()
         return x,hidden_states

@@ -25,8 +25,7 @@ class DataGen(tf.keras.utils.Sequence):
               A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
               A.HorizontalFlip(p=0.5),
               A.RandomBrightnessContrast(p=0.2), ],
-              additional_targets={"image1": "image"},
-              additional_targets={"mask1": "mask"}
+              additional_targets={"image1": "image","mask1": "mask"},
 
 
          )
@@ -48,7 +47,7 @@ class DataGen(tf.keras.utils.Sequence):
 
         post_target_aug=get_encoded(post_target_aug)
         post_target_aug=np.float32(post_target_aug)
-        pre_target_aug=np.float32(pre_target_aug)
+        pre_target_aug=np.expand_dims(np.float32(pre_target_aug),axis=-1)
 
         post_dis_aug=np.float32(post_dis_aug/255)
         pre_dis_aug=np.float32(pre_dis_aug/255)

@@ -1,3 +1,5 @@
+#ref Huggingg Face Segformer
+
 import tensorflow as tf
 import math
 from typing import Optional
@@ -531,6 +533,7 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
         super().__init__( **kwargs)
         self.segformer = TFSegformerMainLayer(config, name="segformer")
         self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
         self.config=config
 
     def call(
@@ -565,6 +568,6 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
                 output = (logits,) + outputs[2:]
             return output
 
-        return logits
+        return self.final_activation(logits)
     
 

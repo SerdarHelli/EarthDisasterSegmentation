@@ -10,7 +10,7 @@ from tensorflow.python.platform import tf_logging as logging
 from keras.utils import io_utils
 
 class SaveCheckpoint(tf.keras.callbacks.Callback):
-    def __init__(self,number_epoch, monitor="reconstruction_loss",per_epoch=None,initial_value_threshold=0.05,  mode: str = "min",save_best=False):
+    def __init__(self,number_epoch, monitor="val_iou",per_epoch=None,initial_value_threshold=0.05,  mode: str = "min",save_best=False):
         super(SaveCheckpoint, self).__init__()
         
         self.per_epoch = per_epoch
@@ -80,7 +80,7 @@ class SaveCheckpoint(tf.keras.callbacks.Callback):
 
 class LearningRateStepScheduler(tf.keras.callbacks.Callback):
 
-    def __init__(self, initial_lr,step_warmup=10000, verbose=0):
+    def __init__(self, initial_lr,step_warmup=5000, verbose=0):
         super(LearningRateStepScheduler, self).__init__()
 
         self.verbose = verbose

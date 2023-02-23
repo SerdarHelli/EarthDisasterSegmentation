@@ -1,10 +1,10 @@
 
 import tensorflow as tf
-from segformer import TFSegformerForSemanticSegmentation
-from unet import UNet
+from model.segformer import TFSegformerForSemanticSegmentation
+from model.unet import UNet
 import numpy as np
 import tensorflow.keras.backend as K
-from loss import *
+from model.loss import *
 import os
 import datetime
 
@@ -30,9 +30,12 @@ class USegFormer(tf.keras.Model):
 
                  ):
         super(USegFormer,self).__init__()
+        self.lr=config.lr
+        self.weight_decay=config.weight_decay
+        self.shape_input=config.input_shape
 
-        self.unet_layer = TFSegformerForSemanticSegmentation(config)
-        self.segformer_layer = UNet(config)
+        self.unet_layer = UNet(config)
+        self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
 
         self.combo_loss_tracker = tf.keras.metrics.Mean(name="Combo_loss")
@@ -49,10 +52,7 @@ class USegFormer(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
 
-        self.lr=config.lr
-        self.shape_input=config.input_shape
-        self.combo_loss=ComboLoss()
-        self.focal_loss=FocalTverskyLoss()
+  
 
 
     def build_usegformer(self,):
@@ -62,10 +62,16 @@ class USegFormer(tf.keras.Model):
         local_map,hidden_states=self.unet_layer(input_pre)
         concatted = tf.keras.layers.Concatenate()([input_post, local_map])
 
-        output=self.segformer_layer([concatted,hidden_states])
+        output=self.segformer_layer(concatted,hidden_states)
 
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[local_map,output])
         return model
+
+    def compile(self,**kwargs):
+        super().compile(**kwargs)
+        self.optimizer=tf.keras.optimizers.Adam(learning_rate=self.lr )
+        self.combo_loss=ComboLoss()
+        self.focal_loss=FocalTverskyLoss()
 
 
     @property
@@ -79,10 +85,6 @@ class USegFormer(tf.keras.Model):
             self.iou_score_tracker,
 
         ]
-
-    def make_threshold(self,x):
-      x=(x>np.float32(self.threshold))*1
-      return np.float32(x)
 
     def iou_score(self,y_true, y_pred, smooth=1):
 
@@ -128,7 +130,7 @@ class USegFormer(tf.keras.Model):
             tf.print("-----------Initializing from scratch-----------")
           
           if return_epoch_number==True:
-            return int(self.checkpoint.epoch)+1
+            return int(self.checkpoint.epoch)
     
          
 
@@ -138,14 +140,16 @@ class USegFormer(tf.keras.Model):
         self.checkpoint.step.assign_add(1)
         tf.summary.scalar('steps', data=self.checkpoint.step, step=self.checkpoint.step)
 
-        (x_pre,x_post),(multilabel_map,local_map)=inputs
+        (x_pre,x_post),(local_map,multilabel_map)=inputs
+
 
         with tf.GradientTape() as tape:
 
             y_local,y_multilabel = self.network([x_pre,x_post], training=True)
-            upsample_resolution = tf.shape(multilabel_map)[1:-1]
+            upsample_resolution = tf.shape(multilabel_map)
      
-            y_multilabel_resized = tf.image.resize(y_multilabel, size=upsample_resolution, method="bilinear")
+            y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+
 
 
             loss_combo=self.combo_loss(multilabel_map,y_multilabel_resized)
@@ -157,7 +161,7 @@ class USegFormer(tf.keras.Model):
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        iou_score=self.iou_score(multilabel_map,y_multilabel)
+        iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         iou_local_score=self.iou_score(local_map,y_local)
 
 
@@ -173,12 +177,13 @@ class USegFormer(tf.keras.Model):
 
     def test_step(self, inputs):
         # 1. Get the batch size
-        (x_pre,x_post),(multilabel_map,local_map)=inputs
+        (x_pre,x_post),(local_map,multilabel_map)=inputs
 
         y_local,y_multilabel = self.network([x_pre,x_post], training=False)
-        upsample_resolution = tf.shape(multilabel_map)[1:-1]
-     
-        y_multilabel_resized = tf.image.resize(y_multilabel, size=upsample_resolution, method="bilinear")
+        upsample_resolution = tf.shape(multilabel_map)
+  
+        y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+
 
         loss_local_combo=self.combo_loss(local_map,y_local)
         loss_local_focal=self.focal_loss(local_map,y_local)
@@ -186,7 +191,7 @@ class USegFormer(tf.keras.Model):
         loss_combo=self.combo_loss(multilabel_map,y_multilabel_resized)
         loss_focal=self.focal_loss(multilabel_map,y_multilabel_resized)
 
-        iou_score=self.iou_score(multilabel_map,y_multilabel)
+        iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         iou_local_score=self.iou_score(y_local,local_map)
 
 
