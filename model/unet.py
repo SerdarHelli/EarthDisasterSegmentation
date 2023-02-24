@@ -10,7 +10,6 @@ class ResBlock(tf.keras.layers.Layer):
         self.filters = filters
 
     def build(self, input_shape):
-        self.input_shape=input_shape
         input_filter = input_shape[-1]
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
@@ -107,7 +106,6 @@ class UNet(tf.keras.Model):
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",activity_regularizer=tf.keras.regularizers.L2(1e-5),name="local_map")
 
     def call(self, input_tensor: tf.Tensor):
-        input_shape=tf.shape(input_tensor)
         x=self.conv_first(input_tensor)
         skips=[x]
         hidden_states=[]
