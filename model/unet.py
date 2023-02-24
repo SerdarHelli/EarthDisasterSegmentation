@@ -15,13 +15,13 @@ class ResBlock(tf.keras.layers.Layer):
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
         self.learned_skip = False
-        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-        self.batch_norm2 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5,)
+        self.batch_norm2 = tf.keras.layers.BatchNormalization(epsilon=1e-5,)
 
         if self.filters != input_filter:
             self.learned_skip = True
             self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
-            self.batch_norm3 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+            self.batch_norm3 = tf.keras.layers.BatchNormalization(epsilon=1e-5)
 
     def call(self, input_tensor: tf.Tensor):
         x = self.batch_norm1(input_tensor)
@@ -37,43 +37,7 @@ class ResBlock(tf.keras.layers.Layer):
 
         return output
 
-    def get_config(self):
-        config = super().get_config()
-        config.update({"shape": self.input_shape})
-        return config
 
-class ResBlock(tf.keras.layers.Layer):
-    def __init__(self, filters, **kwargs):
-        super().__init__(**kwargs)
-        self.filters = filters
-
-    def build(self, input_shape):
-        input_filter = input_shape[-1]
-        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
-        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
-        self.learned_skip = False
-        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-        self.batch_norm2 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-
-        if self.filters != input_filter:
-            self.learned_skip = True
-            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same")
-            self.batch_norm3 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-
-    def call(self, input_tensor: tf.Tensor):
-        x = self.batch_norm1(input_tensor)
-        x = self.conv_1(tf.nn.relu(x))
-        x = self.batch_norm2(x)
-        x = self.conv_2(tf.nn.relu(x))
-        skip = (
-            self.conv_3(tf.nn.relu(self.batch_norm3(input_tensor)))
-            if self.learned_skip
-            else input_tensor
-        )
-        output = skip + x
-
-
-        return output
 
 
 class UpSample(tf.keras.layers.Layer):
@@ -83,7 +47,7 @@ class UpSample(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2))
-        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.batch_norm1 = tf.keras.layers.BatchNormalization(epsilon=1e-5,)
 
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)
@@ -139,8 +103,8 @@ class UNet(tf.keras.Model):
                    x = UpSample(hidden_size)
                    self.decoder_blocks.append(x)
 
-        self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same")
+        self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",activity_regularizer=tf.keras.regularizers.L2(1e-5))
 
     def call(self, input_tensor: tf.Tensor):
         input_shape=tf.shape(input_tensor)
