@@ -90,8 +90,6 @@ class USegFormer(tf.keras.Model):
         ]
 
     def iou_score(self,y_true, y_pred, smooth=1):
-        epsilon=K.epsilon()
-        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
         union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
         iou = K.mean((intersection + smooth) / (union + smooth), axis=0)

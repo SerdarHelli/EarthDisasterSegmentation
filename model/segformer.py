@@ -30,7 +30,7 @@ class TFSegformerOverlapPatchEmbeddings(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         self.padding = tf.keras.layers.ZeroPadding2D(padding=patch_size // 2)
         self.proj = tf.keras.layers.Conv2D(
-            filters=hidden_size, kernel_size=patch_size, strides=stride, padding="VALID", name="proj"
+            filters=hidden_size, kernel_size=patch_size, strides=stride, padding="VALID", name="proj", kernel_initializer = 'he_normal'
         )
 
         self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
@@ -83,7 +83,7 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
         self.sr_ratio = sequence_reduction_ratio
         if sequence_reduction_ratio > 1:
             self.sr = tf.keras.layers.Conv2D(
-                filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
+                filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr", kernel_initializer = 'he_normal'
             )
             self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
 
@@ -188,7 +188,7 @@ class TFSegformerDWConv(tf.keras.layers.Layer):
     def __init__(self, dim: int = 768, **kwargs):
         super().__init__(**kwargs)
         self.depthwise_convolution = tf.keras.layers.Conv2D(
-            filters=dim, kernel_size=3, strides=1, padding="same", groups=dim, name="dwconv"
+            filters=dim, kernel_size=3, strides=1, padding="same", groups=dim, name="dwconv", kernel_initializer = 'he_normal'
         )
 
     def call(self, hidden_states: tf.Tensor, height: int, width: int):
@@ -483,9 +483,9 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
         # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = tf.keras.layers.Conv2D(
-            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse"
+            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse", kernel_initializer = 'he_normal'
         )
-        self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
+        self.batch_norm = tf.keras.layers.BatchNormalization( name="batch_norm")
         self.activation = tf.keras.layers.Activation("relu")
 
         self.dropout = tf.keras.layers.Dropout(config.classifier_dropout_prob)
