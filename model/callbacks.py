@@ -60,7 +60,7 @@ class SaveCheckpoint(tf.keras.callbacks.Callback):
  
     def on_epoch_end(self, epoch, logs=None):
         if self.save_best==True:
-            self.save_best(epoch,logs)
+            self.save_best_model(epoch,logs)
         if self.per_epoch:
             if (epoch%self.per_epoch)==0 and epoch!=0:
                 self.model.checkpoint.save(file_prefix = self.model.checkpoint_prefix)
@@ -120,3 +120,4 @@ class LearningRateStepScheduler(tf.keras.callbacks.Callback):
         logs = logs or {}
         logs["lr"] = keras.backend.get_value(self.model.optimizer.lr)
         tf.summary.scalar('learning rate', data=logs["lr"], step=self.model.checkpoint.step)
+

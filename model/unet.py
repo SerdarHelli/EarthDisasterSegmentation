@@ -56,7 +56,6 @@ class UpSample(tf.keras.layers.Layer):
 
 
 
-
 class UNet(tf.keras.Model):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
