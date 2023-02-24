@@ -35,7 +35,7 @@ class USegFormer(tf.keras.Model):
         self.shape_input=config.input_shape
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
-
+        self.gradient_clip_value=config.gradient_clip_value
         self.unet_layer = UNet(config)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
@@ -71,7 +71,8 @@ class USegFormer(tf.keras.Model):
 
     def compile(self,**kwargs):
         super().compile(**kwargs)
-        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,use_ema=self.use_ema,ema_momentum=self.ema_momentum)
+        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
+                                                              use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.combo_loss=ComboLoss()
         self.focal_loss=FocalTverskyLoss()
 
@@ -89,11 +90,12 @@ class USegFormer(tf.keras.Model):
         ]
 
     def iou_score(self,y_true, y_pred, smooth=1):
-
-      intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-      union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
-      iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
-      return iou
+        epsilon=K.epsilon()
+        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
+        union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
+        iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
+        return iou
 
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(

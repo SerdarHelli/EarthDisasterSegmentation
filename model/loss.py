@@ -24,10 +24,12 @@ class ComboLoss(tf.keras.losses.Loss):
         self.bce = tf.keras.losses.BinaryCrossentropy(from_logits=True,reduction=tf.keras.losses.Reduction.NONE)
 
     def call(self, y_true, y_pred):
+        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
+
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
         union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
         dice= K.mean( (2. * intersection + self.smooth) / (union + self.smooth), axis=0)
-        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
+
         cross_entropy = self.bce(K.flatten(y_true),K.flatten(y_pred))
         beta_weight = np.array([self.beta, 1-self.beta])
         cross_entropy = beta_weight * cross_entropy

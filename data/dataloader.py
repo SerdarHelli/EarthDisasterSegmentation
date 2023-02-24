@@ -51,6 +51,9 @@ class DataGen(tf.keras.utils.Sequence):
 
         post_dis_aug=np.float32(post_dis_aug/255)
         pre_dis_aug=np.float32(pre_dis_aug/255)
+        pre_target_aug[np.isnan(pre_target_aug)] = 0
+        post_target_aug[np.isnan(post_target_aug)] = 0
+
         return pre_dis_aug,post_dis_aug,pre_target_aug,post_target_aug
 
 
