@@ -35,6 +35,7 @@ class DataGen(tf.keras.utils.Sequence):
         post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
         post_target=create_inference_image(self.post_target_files[i])
         pre_target=create_inference_image(self.pre_target_files[i])
+        pre_target=(pre_target>0.25)*1
 
         #post_target[post_target==5]=1
 

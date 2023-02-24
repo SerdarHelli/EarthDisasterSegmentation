@@ -11,15 +11,15 @@ class ResBlock(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
-        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
-        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal',activity_regularizer=tf.keras.regularizers.L2(1e-5))
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal',activity_regularizer=tf.keras.regularizers.L2(1e-5))
         self.learned_skip = False
         self.batch_norm1 = tf.keras.layers.BatchNormalization( )
         self.batch_norm2 = tf.keras.layers.BatchNormalization()
 
         if self.filters != input_filter:
             self.learned_skip = True
-            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal',activity_regularizer=tf.keras.regularizers.L2(1e-5))
             self.batch_norm3 = tf.keras.layers.BatchNormalization()
 
     def call(self, input_tensor: tf.Tensor):
@@ -45,7 +45,7 @@ class UpSample(tf.keras.layers.Layer):
         self.filters = filters
 
     def build(self, input_shape):
-        self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal')
+        self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal',activity_regularizer=tf.keras.regularizers.L2(1e-5))
         self.batch_norm1 = tf.keras.layers.BatchNormalization()
 
     def call(self, input_tensor: tf.Tensor):
@@ -67,7 +67,7 @@ class UNet(tf.keras.Model):
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
 
-        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal',activity_regularizer=tf.keras.regularizers.L2(1e-5),)
         self.encoder_blocks=[]
         self.concat_idx=[]
         self.decoder_blocks=[]
@@ -82,7 +82,7 @@ class UNet(tf.keras.Model):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
-                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
+                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
 
        
@@ -122,7 +122,7 @@ class UNet(tf.keras.Model):
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
 
-        x=self.batch_norm(tf.nn.relu(x))
+        x=tf.nn.relu(self.batch_norm(x))
         x=self.final_layer(x)
         x=self.final_activation(x)
         hidden_states.reverse()
