@@ -103,6 +103,7 @@ class UNet(tf.keras.Model):
         self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
 
     def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
 
         self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same")
         self.encoder_blocks=[]
@@ -162,5 +163,6 @@ class UNet(tf.keras.Model):
 
         x=self.batch_norm(tf.nn.relu(x))
         x=self.final_layer(x)
+        x=self.final_activation(x)
         hidden_states.reverse()
         return x,hidden_states

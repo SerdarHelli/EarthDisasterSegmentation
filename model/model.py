@@ -12,7 +12,7 @@ import datetime
 from omegaconf import OmegaConf
 SegformerConfig={
      "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],
-      "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,
+      "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,"use_ema":True,"ema_momentum":0.9999,
       "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,"hidden_act" : 'gelu', "hidden_dropout_prob" : 0.0,
       "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,
       "classifier_dropout_prob" : 0.1 ,"initializer_range" : 0.02,"use_return_dict":True,"classifier_dropout_prob":0.0,
@@ -33,6 +33,8 @@ class USegFormer(tf.keras.Model):
         self.lr=config.lr
         self.weight_decay=config.weight_decay
         self.shape_input=config.input_shape
+        self.use_ema=config.input_shape
+        self.ema_momentum=config.ema_momentum
 
         self.unet_layer = UNet(config)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
@@ -69,7 +71,7 @@ class USegFormer(tf.keras.Model):
 
     def compile(self,**kwargs):
         super().compile(**kwargs)
-        self.optimizer=tf.keras.optimizers.Adam(learning_rate=self.lr )
+        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,use_ema=self.use_ema,ema_momentum=self.ema_momentum)
         self.combo_loss=ComboLoss()
         self.focal_loss=FocalTverskyLoss()
 
