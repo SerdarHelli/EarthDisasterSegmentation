@@ -104,7 +104,7 @@ class UNet(tf.keras.Model):
                    self.decoder_blocks.append(x)
 
         self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5)
-        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",activity_regularizer=tf.keras.regularizers.L2(1e-5))
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",activity_regularizer=tf.keras.regularizers.L2(1e-5),name="local_map")
 
     def call(self, input_tensor: tf.Tensor):
         input_shape=tf.shape(input_tensor)
