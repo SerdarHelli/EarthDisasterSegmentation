@@ -96,3 +96,69 @@ class FocalTverskyLoss(tf.keras.losses.Loss):
         focal_tversky_loss = K.mean(K.pow((1-tversky_class), self.gamma))
         return focal_tversky_loss
 
+
+class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
+    """The Unified Focal loss is a new compound loss function that unifies Dice-based and cross entropy-based loss functions into a single framework.
+    Ref : https://github.com/mlyg/unified-focal-loss
+    Paper: Unified Focal loss: Generalising Dice and cross entropy-based losses to handle class imbalanced medical image segmentation
+    Parameters
+    ----------
+    weight : float, optional
+        represents lambda parameter and controls weight given to asymmetric Focal Tversky loss and asymmetric Focal loss, by default 0.5
+    delta : float, optional
+        controls weight given to each class, by default 0.6
+    gamma : float, optional
+        focal parameter controls the degree of background suppression and foreground enhancement, by default 0.5
+    """
+    def __init__(self, weight=0.5, delta=0.6, gamma=0.5,**kwargs):
+        super().__init__(**kwargs)
+        self.epsilon=K.epsilon()
+        self.weight=weight
+        self.delta=delta
+        self.gamma=gamma
+
+    def asymmetric_focal_tversky_loss(self,y_true, y_pred,delta=0.7, gamma=0.75):
+        # Clip values to prevent division by zero error
+        epsilon = self.epsilon
+        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
+
+        # Calculate true positives (tp), false negatives (fn) and false positives (fp)     
+        tp = K.sum(y_true * y_pred, axis=[1,2,3])
+        fn = K.sum(y_true * (1-y_pred), axis=[1,2,3])
+        fp = K.sum((1-y_true) * y_pred, axis=[1,2,3])
+        dice_class = (tp + epsilon)/(tp + delta*fn + (1-delta)*fp + epsilon)
+
+        #calculate losses separately for each class, only enhancing foreground class
+        back_dice = (1-dice_class[:,0]) 
+        fore_dice = (1-dice_class[:,1]) * K.pow(1-dice_class[:,1], -gamma) 
+
+        # Average class scores
+        loss = K.mean(tf.stack([back_dice,fore_dice],axis=-1))
+
+        return loss
+    
+    def asymmetric_focal_loss(self,y_true, y_pred,delta=0.7, gamma=2.):
+
+
+        epsilon = self.epsilon
+        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
+        cross_entropy = -y_true * K.log(y_pred)
+
+        #calculate losses separately for each class, only suppressing background class
+        back_ce = K.pow(1 - y_pred[:,:,:,0], gamma) * cross_entropy[:,:,:,0]
+        back_ce =  (1 - delta) * back_ce
+
+        fore_ce = cross_entropy[:,:,:,1]
+        fore_ce = delta * fore_ce
+
+        loss = K.mean(K.sum(tf.stack([back_ce, fore_ce],axis=-1),axis=-1))
+
+        return loss
+    
+    def call(self, y_true, y_pred):
+        asymmetric_ftl = self.asymmetric_focal_tversky_loss(y_true,y_pred,delta=self.delta, gamma=self.gamma)
+        asymmetric_fl = self.asymmetric_focal_loss(y_true,y_pred,delta=self.delta, gamma=self.gamma)
+        if self.weight is not None:
+            return (self.weight * asymmetric_ftl) + ((1-self.weight) * asymmetric_fl)  
+        else:
+            return asymmetric_ftl + asymmetric_fl
