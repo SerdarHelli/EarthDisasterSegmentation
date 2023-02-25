@@ -101,6 +101,8 @@ class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
     """The Unified Focal loss is a new compound loss function that unifies Dice-based and cross entropy-based loss functions into a single framework.
     Ref : https://github.com/mlyg/unified-focal-loss
     Paper: Unified Focal loss: Generalising Dice and cross entropy-based losses to handle class imbalanced medical image segmentation
+
+    Deleted Background Class - enhancment etc. because we dont use
     Parameters
     ----------
     weight : float, optional
@@ -123,17 +125,16 @@ class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
         y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
 
         # Calculate true positives (tp), false negatives (fn) and false positives (fp)     
-        tp = K.sum(y_true * y_pred, axis=[1,2,3])
-        fn = K.sum(y_true * (1-y_pred), axis=[1,2,3])
-        fp = K.sum((1-y_true) * y_pred, axis=[1,2,3])
+        tp = K.sum(y_true * y_pred, axis=[1,2])
+        fn = K.sum(y_true * (1-y_pred), axis=[1,2])
+        fp = K.sum((1-y_true) * y_pred, axis=[1,2])
         dice_class = (tp + epsilon)/(tp + delta*fn + (1-delta)*fp + epsilon)
 
-        #calculate losses separately for each class, only enhancing foreground class
-        back_dice = (1-dice_class[:,0]) 
-        fore_dice = (1-dice_class[:,1]) * K.pow(1-dice_class[:,1], -gamma) 
+
+        fore_dice = (1-dice_class) * K.pow(1-dice_class, -gamma) 
 
         # Average class scores
-        loss = K.mean(tf.stack([back_dice,fore_dice],axis=-1))
+        loss = K.mean(tf.stack([fore_dice],axis=-1))
 
         return loss
     
@@ -144,14 +145,9 @@ class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
         y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
         cross_entropy = -y_true * K.log(y_pred)
 
-        #calculate losses separately for each class, only suppressing background class
-        back_ce = K.pow(1 - y_pred[:,:,:,0], gamma) * cross_entropy[:,:,:,0]
-        back_ce =  (1 - delta) * back_ce
+        fore_ce = delta * cross_entropy
 
-        fore_ce = cross_entropy[:,:,:,1]
-        fore_ce = delta * fore_ce
-
-        loss = K.mean(K.sum(tf.stack([back_ce, fore_ce],axis=-1),axis=-1))
+        loss = K.mean(K.sum(tf.stack([fore_ce],axis=-1),axis=-1))
 
         return loss
     
