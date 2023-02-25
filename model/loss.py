@@ -15,6 +15,9 @@ class JaccardLoss(tf.keras.losses.Loss):
       return (1-iou)
 
 class ComboLoss(tf.keras.losses.Loss):
+    """
+    It is not working well
+    """
     def __init__(self, smooth=1,**kwargs):
         super().__init__(**kwargs)
         self.smooth=smooth
@@ -40,6 +43,7 @@ class ComboLoss(tf.keras.losses.Loss):
 
 
 
+
 class GeneralizedDice(tf.keras.losses.Loss):
     def __init__(self, smooth=1,**kwargs):
         super().__init__(**kwargs)
@@ -47,15 +51,31 @@ class GeneralizedDice(tf.keras.losses.Loss):
 
 
     def call(self, y_true, y_pred):
-        y_true = K.clip(y_true, self.epsilon, 1. - self.epsilon)
-        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
 
-        weights = 1./K.sum(y_true, axis=[0,1,2])
-        weights = weights/K.sum(weights)
-        num = K.sum(weights*K.sum(y_true*y_pred, axis=[0,1,2]))
-        den = K.sum(weights*K.sum(y_true+y_pred, axis=[0,1,2]))
-        loss=K.mean(2.*(num+self.epsilon)/(den+self.epsilon))
-        return loss
+        # [b, h, w, classes]
+        y_true_shape = tf.shape(y_true)
+
+        # [b, h*w, classes]
+        y_true = tf.reshape(y_true, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
+        y_pred = tf.reshape(y_pred, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
+
+        # [b, classes]
+        # count how many of each class are present in 
+        # each image, if there are zero, then assign
+        # them a fixed weight of eps
+        counts = tf.reduce_sum(y_true, axis=1)
+        weights = 1. / (counts ** 2)
+        weights = tf.where(tf.math.is_finite(weights), weights, self.epsilon)
+
+        multed = tf.reduce_sum(y_true * y_pred, axis=1)
+        summed = tf.reduce_sum(y_true + y_pred, axis=1)
+
+        # [b]
+        numerators = tf.reduce_sum(weights*multed, axis=-1)
+        denom = tf.reduce_sum(weights*summed, axis=-1)
+        dices = 1. - 2. * numerators / denom
+        dices = tf.where(tf.math.is_finite(dices), dices, tf.zeros_like(dices))
+        return tf.reduce_mean(dices)
     
 class FocalTverskyLoss(tf.keras.losses.Loss):
     def __init__(self, **kwargs):

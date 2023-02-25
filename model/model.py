@@ -40,13 +40,15 @@ class USegFormer(tf.keras.Model):
         self.unet_layer = UNet(config)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
-
-        self.combo_loss_tracker = tf.keras.metrics.Mean(name="Combo_loss")
-        self.combo_local_loss_tracker = tf.keras.metrics.Mean(name="local_Combo_loss")
+        self.threshold_value=0.25
+        self.combo_loss_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
+        self.combo_local_loss_tracker = tf.keras.metrics.Mean(name="local_GenDice_loss")
         self.focal_loss_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
         self.focal_local_loss_tracker = tf.keras.metrics.Mean(name="local_FocalTversky_loss")
         self.iou_score_local_tracker = tf.keras.metrics.Mean(name="iou_local")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
+        self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
+
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -74,7 +76,7 @@ class USegFormer(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
-        self.combo_loss=ComboLoss()
+        self.combo_loss=GeneralizedDice()
         self.focal_loss=FocalTverskyLoss()
 
 
@@ -87,18 +89,37 @@ class USegFormer(tf.keras.Model):
             self.focal_local_loss_tracker,
             self.iou_score_local_tracker,
             self.iou_score_tracker,
-
+            self.challenge_score_tracker,
         ]
     
-    def make_threshold(self,array,threshold_value):
-        array=(array>float(threshold_value))*1
-        return np.float32(array)
+    def make_threshold(self,multi_label,):
+        array=(array>float(self.threshold_value))*1
+        return np.float32(np.expand_dims(array,axis=-1))
 
     def iou_score(self,y_true, y_pred, smooth=1):
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
         union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
         iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
         return iou
+    
+    def dice_score(self,y_true, y_pred, smooth=1):
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
+        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+        dice= K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
+        return dice
+
+
+    def challange_score(self,y_true,y_pred):
+        y_true_loc=K.sum(y_true,axis=[3])
+        y_true_loc = tf.numpy_function(self.make_threshold, [y_true_loc], tf.float32)
+        y_pred_loc=K.sum(y_pred,axis=[3])
+        y_pred_loc = tf.numpy_function(self.make_threshold, [y_pred_loc], tf.float32)
+        loc_dice=self.dice_score(y_true_loc,y_pred_loc)
+        multi_dice=self.dice_score(y_true,y_pred)
+        score=(loc_dice*0.3)+(multi_dice*0.7)
+        return score
+        
+
 
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
@@ -170,7 +191,7 @@ class USegFormer(tf.keras.Model):
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         iou_local_score=self.iou_score(local_map,y_local)
-
+        challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
         self.combo_loss_tracker.update_state(loss_combo)
         self.combo_local_loss_tracker.update_state(loss_local_combo)
@@ -178,6 +199,7 @@ class USegFormer(tf.keras.Model):
         self.focal_local_loss_tracker.update_state(loss_local_focal)
         self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
+        self.challenge_score_tracker.update_state(challenge_score)
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -200,6 +222,7 @@ class USegFormer(tf.keras.Model):
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         iou_local_score=self.iou_score(y_local,local_map)
+        challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
 
         self.combo_loss_tracker.update_state(loss_combo)
@@ -208,5 +231,7 @@ class USegFormer(tf.keras.Model):
         self.focal_local_loss_tracker.update_state(loss_local_focal)
         self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
+        self.challenge_score_tracker.update_state(challenge_score)
+
         results = {m.name: m.result() for m in self.metrics}
         return results
