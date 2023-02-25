@@ -59,12 +59,9 @@ class USegFormer(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
 
-  
 
-
-    def build_usegformer(self,):
-        input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
-        input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
+    def build_segformer(self,):
+        input_post_concatted= tf.keras.Input(shape=self.shape_input,name="post_concataned_image")
 
         local_map,hidden_states=self.unet_layer(input_pre)
         concatted = tf.keras.layers.Concatenate()([input_post, local_map])

@@ -107,15 +107,18 @@ class UNet(tf.keras.Model):
         x=self.conv_first(input_tensor)
         skips=[x]
         hidden_states=[]
-        for block in self.encoder_blocks:
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                hidden_states.append(x)
             x=block(x)
+
             skips.append(x)
         for block in self.middle_blocks:
             x=block(x)
+        hidden_states.append(x)
 
         for idx,block in enumerate(self.decoder_blocks):
-            if idx in self.concat_idx[:-1]:
-                  hidden_states.append(x)
+
        
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
@@ -124,5 +127,5 @@ class UNet(tf.keras.Model):
         x=tf.nn.relu(self.batch_norm(x))
         x=self.final_layer(x)
         x=self.final_activation(x)
-        hidden_states.reverse()
+        hidden_states
         return x,hidden_states
