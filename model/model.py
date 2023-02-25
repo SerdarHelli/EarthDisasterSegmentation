@@ -93,7 +93,7 @@ class USegFormer(tf.keras.Model):
         ]
     
     def make_threshold(self,multi_label,):
-        array=(array>float(self.threshold_value))*1
+        array=(multi_label>float(self.threshold_value))*1
         return np.float32(np.expand_dims(array,axis=-1))
 
     def iou_score(self,y_true, y_pred, smooth=1):
