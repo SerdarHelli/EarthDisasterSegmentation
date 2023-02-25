@@ -1,4 +1,8 @@
 
+#To-DO 
+#Seperated Training ,Combination of Two models Unet and Segformer
+
+
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
 from model.unet import UNet
@@ -89,10 +93,6 @@ class USegFormer(tf.keras.Model):
             self.iou_score_tracker,
 
         ]
-    
-    def make_threshold(self,array,threshold_value):
-        array=(array>float(threshold_value))*1
-        return np.float32(array)
 
     def iou_score(self,y_true, y_pred, smooth=1):
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
