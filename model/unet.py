@@ -127,5 +127,4 @@ class UNet(tf.keras.Model):
         x=tf.nn.relu(self.batch_norm(x))
         x=self.final_layer(x)
         x=self.final_activation(x)
-        hidden_states
         return x,hidden_states
