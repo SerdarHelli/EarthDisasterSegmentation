@@ -14,6 +14,26 @@ class JaccardLoss(tf.keras.losses.Loss):
       iou = K.mean((intersection + self.smooth) / (union + self.smooth), axis=0)
       return (1-iou)
 
+
+
+class DiceLoss(tf.keras.losses.Loss):
+ 
+    def __init__(self, weight,smooth=1,**kwargs):
+        super().__init__(**kwargs)
+        self.smooth=smooth
+        self.epsilon=K.epsilon()
+        self.alpha=0.5
+        self.beta=0.5
+        self.weight = weight
+
+    def call(self, y_true, y_pred):
+
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2])
+        union = K.sum(y_true, axis=[1,2,]) + K.sum(y_pred, axis=[1,2])
+        dice= K.mean( (2. * intersection + self.smooth) / (union + self.smooth), axis=0)
+
+        return (1-dice)
+    
 class ComboLoss(tf.keras.losses.Loss):
     """
     It is not working well
