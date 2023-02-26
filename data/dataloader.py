@@ -139,8 +139,8 @@ class UnetDataGen(tf.keras.utils.Sequence):
 
         for i in range(i_start,i_end):
           image,mask=self.__load_data__(i)
-          batch_mask.append(image)
-          batch_img.append(mask)
+          batch_mask.append(mask)
+          batch_img.append(image)
 
         return np.asarray(batch_img),np.asarray(batch_mask)
     
