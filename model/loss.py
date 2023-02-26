@@ -14,7 +14,17 @@ class JaccardLoss(tf.keras.losses.Loss):
       iou = K.mean((intersection + self.smooth) / (union + self.smooth), axis=0)
       return (1-iou)
 
+class FocalLoss(tf.keras.losses.Loss):
+    def __init__(self, gamma=2,**kwargs ):
+        super().__init__(**kwargs)
+        self.gamma = gamma
+        self.epsilon=K.epsilon()
 
+    def call(self, y_true, y_pred):
+        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
+        y_true = K.clip(y_true, self.epsilon, 1. - self.epsilon)
+        pt = (1 - y_true) * (1 - y_pred) + y_true * y_pred
+        return K.mean((-(1. - pt) ** self.gamma * K.log(pt)))
 
 class DiceLoss(tf.keras.losses.Loss):
  

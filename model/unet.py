@@ -300,8 +300,8 @@ class UNetModel(tf.keras.Model):
 
         y_local = self.network(x, training=False)
 
-        loss_2=self.loss_1(local_map,y_local)
-        loss_1=self.loss_2(local_map,y_local)
+        loss_2=self.loss_2(local_map,y_local)
+        loss_1=self.loss_1(local_map,y_local)
         iou_score=self.iou_score(local_map,y_local)
 
         self.loss_1_tracker.update_state(loss_1)
