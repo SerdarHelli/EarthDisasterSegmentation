@@ -36,30 +36,28 @@ class DiceLoss(tf.keras.losses.Loss):
     
 class ComboLoss(tf.keras.losses.Loss):
     """
-    It is not working well
+    ALPHA = 0.3    # < 0.5 penalises FP more, > 0.5 penalises FN more
+    CE_RATIO = 0.7 # weighted contribution of modified CE loss compared to Dice loss
     """
-    def __init__(self, smooth=1,**kwargs):
+    def __init__(self,alpha=0.3,ce_ratio=0.7, smooth=1,**kwargs):
         super().__init__(**kwargs)
         self.smooth=smooth
         self.epsilon=K.epsilon()
-        self.alpha=0.5
-        self.beta=0.5
-        self.bce = tf.keras.losses.BinaryCrossentropy(from_logits=True,reduction=tf.keras.losses.Reduction.NONE)
+        self.alpha=alpha
+        self.ce_ratio=ce_ratio
 
     def call(self, y_true, y_pred):
 
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
-        dice= K.mean( (2. * intersection + self.smooth) / (union + self.smooth), axis=0)
-
-        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
-        cross_entropy = self.bce(K.flatten(y_true),K.flatten(y_pred))
-        beta_weight = np.array([self.beta, 1-self.beta])
-        cross_entropy = beta_weight * cross_entropy
-        # sum over classes
-        cross_entropy = K.mean(K.sum(cross_entropy, axis=[-1]))
-        combo_loss = (self.alpha * cross_entropy) - ((1 - self.alpha) * dice)
-        return combo_loss
+        targets = K.flatten(y_true)
+        inputs = K.flatten(y_pred)
+        
+        intersection = K.sum(targets * inputs)
+        dice = (2. * intersection + self.smooth) / (K.sum(targets) + K.sum(inputs) + self.smooth)
+        inputs = K.clip(inputs, self.epsilon, 1.0 - self.epsilon)
+        out = - (self.alpha * ((targets * K.log(inputs)) + ((1 - self.alpha) * (1.0 - targets) * K.log(1.0 - inputs))))
+        weighted_ce = K.mean(out, axis=-1)
+        combo = (self.ce_ratio * weighted_ce) - ((1 - self.ce_ratio) * dice)
+        return combo
 
 
 
@@ -98,23 +96,25 @@ class GeneralizedDice(tf.keras.losses.Loss):
         return tf.reduce_mean(dices)
     
 class FocalTverskyLoss(tf.keras.losses.Loss):
-    def __init__(self, **kwargs):
+    def __init__(self,alpha=0.3,beta=0.7,gamma=4/3, smooth=0.000001, **kwargs):
         super().__init__(**kwargs)
-        self.smooth=0.000001
+        self.smooth=smooth
         self.epsilon=K.epsilon()
-        self.delta=0.7
-        self.gamma=0.75
-
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
     def call(self, y_true, y_pred):
-        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon) 
 
-        tp = K.sum(y_true * y_pred, axis=[1,2,3])
-        fn = K.sum(y_true * (1-y_pred), axis=[1,2,3])
-        fp = K.sum((1-y_true) * y_pred, axis=[1,2,3])
-        tversky_class = (tp + self.smooth)/(tp + self.delta*fn + (1-self.delta)*fp +  self.smooth)
-        # Average class scores
-        focal_tversky_loss = K.mean(K.pow((1-tversky_class), self.gamma))
-        return focal_tversky_loss
+        inputs = K.flatten(y_pred)
+        targets = K.flatten(y_true)  
+        #True Positives, False Positives & False Negatives
+        TP = K.sum((inputs * targets))
+        FP = K.sum(((1-targets) * inputs))
+        FN = K.sum((targets * (1-inputs)))
+               
+        Tversky = (TP + self.smooth) / (TP + self.alpha*FP + self.beta*FN + self.smooth)  
+        FocalTversky = K.pow((1 - Tversky), self.gamma)
+        return FocalTversky
 
 
 class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
