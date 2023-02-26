@@ -166,7 +166,6 @@ class UNetModel(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-        self.unet_layer = UNet_AutoEncoder(config)
         self.network=self.build_unet()
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
@@ -184,12 +183,9 @@ class UNetModel(tf.keras.Model):
 
 
     def build_unet(self,):
-        inputs = tf.keras.Input(shape=self.shape_input)
-
-        local_map,hidden_states=self.unet_layer(inputs)
-
-
-        model = tf.keras.Model(inputs=inputs, outputs=local_map)
+        input_image = tf.keras.Input(shape=self.shape_input)
+        local_map,hidden_states=UNet_AutoEncoder(self.config)(input_image)
+        model = tf.keras.Model(inputs=input_image, outputs=local_map)
         return model
 
     def compile(self,**kwargs):
@@ -208,9 +204,6 @@ class UNetModel(tf.keras.Model):
             self.iou_score_tracker,
         ]
     
-    def make_threshold(self,multi_label,):
-        array=(multi_label>float(self.threshold_value))*1
-        return np.float32(np.expand_dims(array,axis=-1))
 
     def iou_score(self,y_true, y_pred, smooth=1):
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
