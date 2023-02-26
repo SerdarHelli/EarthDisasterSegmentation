@@ -18,13 +18,12 @@ class JaccardLoss(tf.keras.losses.Loss):
 
 class DiceLoss(tf.keras.losses.Loss):
  
-    def __init__(self, weight,smooth=1,**kwargs):
+    def __init__(self,smooth=1,**kwargs):
         super().__init__(**kwargs)
         self.smooth=smooth
         self.epsilon=K.epsilon()
         self.alpha=0.5
         self.beta=0.5
-        self.weight = weight
 
     def call(self, y_true, y_pred):
 
