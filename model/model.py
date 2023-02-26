@@ -1,7 +1,7 @@
 
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
-from model.unet import UNet
+from model.unet import *
 import numpy as np
 import tensorflow.keras.backend as K
 from model.loss import *
@@ -37,15 +37,12 @@ class USegFormer(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-        self.unet_layer = UNet(config)
+        self.unet_layer=UNet_AutoEncoder(config)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.25
         self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
-        self.loss_1_local_tracker = tf.keras.metrics.Mean(name="local_GenDice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
-        self.loss_2_local_tracker = tf.keras.metrics.Mean(name="local_FocalTversky_loss")
-        self.iou_score_local_tracker = tf.keras.metrics.Mean(name="iou_local")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
 
@@ -69,7 +66,7 @@ class USegFormer(tf.keras.Model):
 
         output=self.segformer_layer(concatted,hidden_states)
 
-        model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[local_map,output])
+        model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
         return model
 
     def compile(self,**kwargs):
@@ -173,7 +170,7 @@ class USegFormer(tf.keras.Model):
 
         with tf.GradientTape() as tape:
 
-            y_local,y_multilabel = self.network([x_pre,x_post], training=True)
+            y_multilabel = self.network([x_pre,x_post], training=True)
             upsample_resolution = tf.shape(multilabel_map)
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
@@ -182,22 +179,16 @@ class USegFormer(tf.keras.Model):
 
             loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
             loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
-            loss_1_local=self.loss_1(local_map,y_local)
-            loss_2_local=self.loss_2(local_map,y_local)
-            loss=loss_1+loss_2+loss_1_local+loss_2_local
+            loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        iou_local_score=self.iou_score(local_map,y_local)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
-        self.loss_1_local_tracker.update_state(loss_1_local)
         self.loss_2_tracker.update_state(loss_2)
-        self.loss_2_local_tracker.update_state(loss_2_local)
-        self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
         self.challenge_score_tracker.update_state(challenge_score)
         results = {m.name: m.result() for m in self.metrics}
@@ -208,27 +199,20 @@ class USegFormer(tf.keras.Model):
         # 1. Get the batch size
         (x_pre,x_post),(local_map,multilabel_map)=inputs
 
-        y_local,y_multilabel = self.network([x_pre,x_post], training=False)
+        y_multilabel = self.network([x_pre,x_post], training=False)
         upsample_resolution = tf.shape(multilabel_map)
   
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-
-        loss_1_local=self.loss_1(local_map,y_local)
-        loss_2_local=self.loss_2(local_map,y_local)
         
         loss_2=self.loss_1(multilabel_map,y_multilabel_resized)
         loss_1=self.loss_2(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        iou_local_score=self.iou_score(y_local,local_map)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
-        self.loss_1_local_tracker.update_state(loss_1_local)
         self.loss_2_tracker.update_state(loss_2)
-        self.loss_2_local_tracker.update_state(loss_2_local)
-        self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
         self.challenge_score_tracker.update_state(challenge_score)
         results = {m.name: m.result() for m in self.metrics}
