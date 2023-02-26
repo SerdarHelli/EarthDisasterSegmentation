@@ -26,6 +26,7 @@ class ResBlock(tf.keras.layers.Layer):
             self.learned_skip = True
             self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
             self.batch_norm3 = tf.keras.layers.BatchNormalization()
+        
 
     def call(self, input_tensor: tf.Tensor):
         x = self.batch_norm1(input_tensor)
