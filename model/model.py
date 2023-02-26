@@ -41,10 +41,10 @@ class USegFormer(tf.keras.Model):
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.25
-        self.combo_loss_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
-        self.combo_local_loss_tracker = tf.keras.metrics.Mean(name="local_GenDice_loss")
-        self.focal_loss_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
-        self.focal_local_loss_tracker = tf.keras.metrics.Mean(name="local_FocalTversky_loss")
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
+        self.loss_1_local_tracker = tf.keras.metrics.Mean(name="local_GenDice_loss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
+        self.loss_2_local_tracker = tf.keras.metrics.Mean(name="local_FocalTversky_loss")
         self.iou_score_local_tracker = tf.keras.metrics.Mean(name="iou_local")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
@@ -76,17 +76,17 @@ class USegFormer(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
-        self.combo_loss=GeneralizedDice()
-        self.focal_loss=FocalTverskyLoss()
+        self.loss_1=GeneralizedDice()
+        self.loss_2=FocalTverskyLoss()
 
 
     @property
     def metrics(self):
         return [
-            self.combo_loss_tracker,
-            self.combo_local_loss_tracker,
-            self.focal_loss_tracker,
-            self.focal_local_loss_tracker,
+            self.loss_1_tracker,
+            self.loss_1_local_tracker,
+            self.loss_2_tracker,
+            self.loss_2_local_tracker,
             self.iou_score_local_tracker,
             self.iou_score_tracker,
             self.challenge_score_tracker,
@@ -180,11 +180,11 @@ class USegFormer(tf.keras.Model):
 
 
 
-            loss_combo=self.combo_loss(multilabel_map,y_multilabel_resized)
-            loss_focal=self.focal_loss(multilabel_map,y_multilabel_resized)
-            loss_local_combo=self.combo_loss(local_map,y_local)
-            loss_local_focal=self.focal_loss(local_map,y_local)
-            loss=loss_combo+loss_focal+loss_local_combo+loss_local_focal
+            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
+            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
+            loss_1_local=self.loss_1(local_map,y_local)
+            loss_2_local=self.loss_2(local_map,y_local)
+            loss=loss_1+loss_2+loss_1_local+loss_2_local
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
@@ -193,10 +193,10 @@ class USegFormer(tf.keras.Model):
         iou_local_score=self.iou_score(local_map,y_local)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
-        self.combo_loss_tracker.update_state(loss_combo)
-        self.combo_local_loss_tracker.update_state(loss_local_combo)
-        self.focal_loss_tracker.update_state(loss_focal)
-        self.focal_local_loss_tracker.update_state(loss_local_focal)
+        self.loss_1_tracker.update_state(loss_1)
+        self.loss_1_local_tracker.update_state(loss_1_local)
+        self.loss_2_tracker.update_state(loss_2)
+        self.loss_2_local_tracker.update_state(loss_2_local)
         self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
         self.challenge_score_tracker.update_state(challenge_score)
@@ -214,24 +214,22 @@ class USegFormer(tf.keras.Model):
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
 
-        loss_local_combo=self.combo_loss(local_map,y_local)
-        loss_local_focal=self.focal_loss(local_map,y_local)
+        loss_1_local=self.loss_1(local_map,y_local)
+        loss_2_local=self.loss_2(local_map,y_local)
         
-        loss_combo=self.combo_loss(multilabel_map,y_multilabel_resized)
-        loss_focal=self.focal_loss(multilabel_map,y_multilabel_resized)
+        loss_2=self.loss_1(multilabel_map,y_multilabel_resized)
+        loss_1=self.loss_2(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         iou_local_score=self.iou_score(y_local,local_map)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
-
-        self.combo_loss_tracker.update_state(loss_combo)
-        self.combo_local_loss_tracker.update_state(loss_local_combo)
-        self.focal_loss_tracker.update_state(loss_focal)
-        self.focal_local_loss_tracker.update_state(loss_local_focal)
+        self.loss_1_tracker.update_state(loss_1)
+        self.loss_1_local_tracker.update_state(loss_1_local)
+        self.loss_2_tracker.update_state(loss_2)
+        self.loss_2_local_tracker.update_state(loss_2_local)
         self.iou_score_local_tracker.update_state(iou_local_score)
         self.iou_score_tracker.update_state(iou_score)
         self.challenge_score_tracker.update_state(challenge_score)
-
         results = {m.name: m.result() for m in self.metrics}
         return results

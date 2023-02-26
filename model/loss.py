@@ -58,7 +58,37 @@ class ComboLoss(tf.keras.losses.Loss):
         weighted_ce = K.mean(out, axis=-1)
         combo = (self.ce_ratio * weighted_ce) - ((1 - self.ce_ratio) * dice)
         return combo
+"""
+    It is not working well
 
+class ComboLoss(tf.keras.losses.Loss):
+    def __init__(self, smooth=1,**kwargs):
+        super().__init__(**kwargs)
+        self.smooth=smooth
+        self.epsilon=K.epsilon()
+        self.alpha=0.5
+        self.beta=0.5
+        self.bce = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+
+    def call(self, y_true, y_pred):
+
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
+        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+        dice= K.mean( (2. * intersection + self.smooth) / (union + self.smooth), axis=0)
+
+        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
+        cross_entropy = self.bce(K.flatten(y_true),K.flatten(y_pred))
+        if beta is not None:
+            beta_weight = np.array([beta, 1-beta])
+            cross_entropy = beta_weight * cross_entropy
+        # sum over classes
+        cross_entropy = K.mean(K.sum(cross_entropy, axis=[-1]))
+        if alpha is not None:
+            loss_1 = (alpha * cross_entropy) - ((1 - alpha) * dice)
+        else:
+            loss_1 = cross_entropy - dice
+        return loss_1
+"""
 
 
 
@@ -179,28 +209,3 @@ class AsymUnifiedFocalLoss(tf.keras.losses.Loss):
         else:
             return asymmetric_ftl + asymmetric_fl
 
-"""
-    It is not working well
-
-class ComboLoss(tf.keras.losses.Loss):
-    def __init__(self, smooth=1,**kwargs):
-        super().__init__(**kwargs)
-        self.smooth=smooth
-        self.epsilon=K.epsilon()
-        self.alpha=0.5
-        self.beta=0.5
-        self.bce = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
-    def call(self, y_true, y_pred):
-
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
-        dice= K.mean( (2. * intersection + self.smooth) / (union + self.smooth), axis=0)
-
-        y_pred = K.clip(y_pred, self.epsilon, 1. - self.epsilon)
-        cross_entropy = self.bce(K.flatten(y_true),K.flatten(y_pred))
-
-        # sum over classes
-        combo_loss =  cross_entropy+ (1-dice)
-        return combo_loss
-"""
