@@ -62,7 +62,7 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         super().__init__()
         self.dwconv = tf.keras.layers.DepthwiseConv2D(
             kernel_size=7, padding='same')  # depthwise conv
-        self.norm = tf.keras.layersLayerNormalization()
+        self.norm = tf.keras.layers.LayerNormalization()
         # pointwise/1x1 convs, implemented with linear layers
         self.pwconv1 = tf.keras.layers.Dense(4 * dim)
         self.act = Gelu()
@@ -73,15 +73,22 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         self.prefix = prefix
 
     def build(self, input_shape):
+        input_filter = input_shape[-1]
+
         self.gamma = tf.Variable(
             initial_value=self.layer_scale_init_value * tf.ones((self.dim)),
             trainable=True,
             name=f'{self.prefix}/gamma')
         self.built = True
 
-    def call(self, x):
-        input = x
-        x = self.dwconv(x)
+        if self.filters != input_filter:
+            self.learned_skip = True
+            self.pwconv_skip = tf.keras.layers.Dense(self.dim)
+            self.norm_skip = tf.keras.layers.layers.LayerNormalization()
+            self.act_skip = Gelu()
+
+    def call(self, inputs):
+        x = self.dwconv(inputs)
         # x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
         x = self.norm(x)
         x = self.pwconv1(x)
@@ -90,6 +97,10 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         if self.gamma is not None:
             x = self.gamma * x
         # x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
-
-        x = input + self.drop_path(x)
+        skip = (
+                self.act_skip(self.norm_skip(self.pwconv_skip(inputs)))
+                if self.learned_skip
+                else inputs
+            )
+        x = skip + self.drop_path(x)
         return x

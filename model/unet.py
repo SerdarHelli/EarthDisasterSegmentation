@@ -21,6 +21,11 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
 
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
+        unet_depths=self.config.depths
+        unet_depths.append(self.config.depths[-1])
+        unet_depths.append(self.config.depths[-1])
+
+        self.dp_rates = [x for x in tf.linspace(0.0, self.config.drop_path_rate, sum(unet_depths))]
 
         self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
         self.encoder_blocks=[]
@@ -31,32 +36,35 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
                 for _ in range(self.config.unet_num_res_blocks):
                     idx_x=idx_x+1
-                    x = ConvNeXtBlock(hidden_size)
+                    x = ConvNeXtBlock(hidden_size,drop_path=self.dp_rates[i])
                     self.encoder_blocks.append(x)
 
                 if hidden_size != self.unet_hidden_sizes[-1]:
                     self.concat_idx.append(idx_x-1)
                     idx_x=idx_x+1
-                    x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
-                    self.encoder_blocks.append(x)
+                    self.encoder_blocks(tf.keras.layers.LayerNormalization(epsilon=1e-6))
+                    self.encoder_blocks(tf.keras.layers.Conv2D(hidden_size, kernel_size=2, strides=2,padding="same", kernel_initializer = 'he_normal'))
+                    self.encoder_blocks(tf.keras.layers.LayerNormalization(epsilon=1e-6))
+                    self.encoder_blocks(tf.keras.layers.Conv2D(hidden_size, kernel_size=3,padding="same", kernel_initializer = 'he_normal'))
 
         
 
-        self.middle_blocks=[ConvNeXtBlock(self.unet_hidden_sizes[-1]),
-                            ConvNeXtBlock(self.unet_hidden_sizes[-1])
+        self.middle_blocks=[ConvNeXtBlock(self.unet_hidden_sizes[-1],drop_path=self.dp_rates[-1]),
+                            ConvNeXtBlock(self.unet_hidden_sizes[-1],drop_path=self.dp_rates[-1])
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
                 for _ in range(self.config.unet_num_res_blocks):
-                    x = ConvNeXtBlock(hidden_size)
+                    x = ConvNeXtBlock(hidden_size,drop_path=self.dp_rates[-i])
                     self.decoder_blocks.append(x)
                 
                 if i!=0:
 
-                    x = UpSample(hidden_size)
-                    self.decoder_blocks.append(x)
+                    self.decoder_blocks.append(UpSample(hidden_size))
+                    self.decoder_blocks(tf.keras.layers.LayerNormalization(epsilon=1e-6))
+                    self.decoder_blocks(tf.keras.layers.Conv2D(hidden_size, kernel_size=3,padding="same", kernel_initializer = 'he_normal'))
 
-        self.batch_norm = tf.keras.layers.BatchNormalization()
+        self.batch_norm = tf.keras.layers.LayerNormalization()
         self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.config.unet_num_transformer,num_heads=self.config.unet_num_heads)
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
 
@@ -71,7 +79,9 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
 
             skips.append(x)
 
-        x=self.middle_block(x)
+        for idx,block in enumerate(self.middle_blocks):
+            x=block(x)
+
         hidden_states.append(x)
 
         for idx,block in enumerate(self.decoder_blocks):
