@@ -65,7 +65,7 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
                 
                 if i!=0:
 
-                    self.decoder_blocks.append(UpSample(hidden_size),norm=self.norm)
+                    self.decoder_blocks.append(UpSample(hidden_size,norm=self.norm))
       
 
         self.norm = getNorm(self.norm)
@@ -303,7 +303,7 @@ class UNetModel(tf.keras.Model):
 
     def build_unet(self,):
         input_image = tf.keras.Input(shape=self.shape_input)
-        local_map,hidden_states=UConvNextNet_AutoEncoder(self.config)(input_image)
+        local_map,hidden_states=UNet_AutoEncoder(self.config)(input_image)
         model = tf.keras.Model(inputs=input_image, outputs=local_map)
         return model
 
