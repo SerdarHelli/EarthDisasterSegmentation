@@ -116,14 +116,14 @@ class VIT_block(tf.keras.layers.Layer):
         return V_MLP+V_add
 
 class VIT(tf.keras.layers.Layer):
-    def __init__(self,filter,embed_dim, num_transformer,num_heads, **kwargs):
+    def __init__(self,filter,embed_dim, num_transformer,num_heads,patch_size=1, **kwargs):
         super(VIT, self).__init__(**kwargs)
         self.num_heads=num_heads
         self.num_transformer=num_transformer
         self.filter_num_MLP=[embed_dim//2,embed_dim]
         self.key_dim=embed_dim
         #its constant
-        self.patch_size=1
+        self.patch_size=patch_size
         self.embed_dim=embed_dim
         self.filter=filter
 
