@@ -3,6 +3,7 @@ import tensorflow as tf
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.backend as K
+from model.vit_layers import VIT
 from model.loss import *
 import os
 import datetime
@@ -59,6 +60,81 @@ class UpSample(tf.keras.layers.Layer):
 
 
 
+
+class UTransNet_AutoEncoder(tf.keras.layers.Layer):
+    def __init__(self, config, **kwargs):
+        super().__init__(**kwargs)
+        self.config = config
+        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
+        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+
+    def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
+
+        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.config.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ResBlock(hidden_size)
+                    self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+
+       
+
+        self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1]),
+                            ResBlock(self.unet_hidden_sizes[-1])
+        ]
+
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.config.unet_num_res_blocks):
+                    x = ResBlock(hidden_size)
+                    self.decoder_blocks.append(x)
+                
+                if i!=0:
+
+                   x = UpSample(hidden_size)
+                   self.decoder_blocks.append(x)
+
+        self.batch_norm = tf.keras.layers.BatchNormalization()
+        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.config.unet_num_transformer,num_heads=self.config.unet_num_heads)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
+
+    def call(self, input_tensor: tf.Tensor):
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        hidden_states=[]
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                hidden_states.append(x)
+            x=block(x)
+
+            skips.append(x)
+
+        x=self.middle_block(x)
+        hidden_states.append(x)
+
+        for idx,block in enumerate(self.decoder_blocks):
+
+       
+            x=block(x)
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+
+        x=tf.nn.relu(self.batch_norm(x))
+        x=self.final_layer(x)
+        x=self.final_activation(x)
+        return x,hidden_states
 
 
 class UNet_AutoEncoder(tf.keras.layers.Layer):
@@ -143,11 +219,9 @@ from omegaconf import OmegaConf
 USegformerConfig={
      "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],"lr":1.5e-4,"weight_decay":1e-6,
       "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,"use_ema":True,"ema_momentum":0.9999,
-      "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,"hidden_act" : 'gelu', "hidden_dropout_prob" : 0.0,
-      "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,"gradient_clip_value" : 2,
-      "classifier_dropout_prob" : 0.1 ,"initializer_range" : 0.02,"use_return_dict":True,"classifier_dropout_prob":0.0,
-      "drop_path_rate" : 0.1, "layer_norm_eps" : 1e-06,"reshape_last_stage":True, "input_shape":[512,512,3],
-      "decoder_hidden_size" : 256, "semantic_loss_ignore_index" : 255,"num_labels":5,"unet_num_res_blocks":3
+      "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,  "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,"gradient_clip_value" : 1,
+      "classifier_dropout_prob" : 0.1 ,"use_return_dict":True, "layer_norm_eps" : 1e-06,"reshape_last_stage":True, "input_shape":[512,512,3],
+      "decoder_hidden_size" : 256,"num_labels":5,"unet_num_res_blocks":2,'unet_num_heads':4,'unet_num_transformer':4,
 
 }
 

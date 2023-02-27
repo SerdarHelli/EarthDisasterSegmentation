@@ -162,6 +162,7 @@ class TFSegformerAttention(tf.keras.layers.Layer):
         hidden_size: int,
         num_attention_heads: int,
         sequence_reduction_ratio: int,
+        attention_probs_dropout_prob:int
 
         **kwargs
     ):
@@ -170,6 +171,7 @@ class TFSegformerAttention(tf.keras.layers.Layer):
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
+            attention_probs_dropout_prob=attention_probs_dropout_prob
             name="self",
         )
         self.dense_output = TFSegformerSelfOutput( hidden_size=hidden_size,name="output")
@@ -268,6 +270,7 @@ class TFSegformerLayer(tf.keras.layers.Layer):
         drop_path: float,
         sequence_reduction_ratio: int,
         mlp_ratio: int,
+        attention_probs_dropout_prob:int
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -276,6 +279,7 @@ class TFSegformerLayer(tf.keras.layers.Layer):
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
+            attention_probs_dropout_prob=attention_probs_dropout_prob
             name="attention",
         )
         self.drop_path = TFSegformerDropPath(drop_path) if drop_path > 0.0 else tf.keras.layers.Activation("linear")
@@ -355,6 +359,7 @@ class TFSegformerEncoder(tf.keras.Model):
                         drop_path=drop_path_decays[cur + j],
                         sequence_reduction_ratio=config.sr_ratios[i],
                         mlp_ratio=config.mlp_ratios[i],
+                        attention_probs_dropout_prob=config.attention_probs_dropout_prob
                         name=f"block.{i}.{j}",
                     )
                 )
