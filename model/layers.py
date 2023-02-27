@@ -2,32 +2,61 @@
 import tensorflow as tf
 from model.segformer import *
 
-class ResBlock(tf.keras.layers.Layer):
-    def __init__(self, filters, **kwargs):
+def getNorm(norm_str,eps=1e-6):
+    if norm_str=="batchnorm":
+        return tf.keras.layers.BatchNormalization(epsilon=eps)
+    if norm_str=="layernorm":
+            return tf.keras.layers.BatchNormalization(epsilon=eps)
+
+class ConvBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
+        self.norm=norm
+
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.norm1 = getNorm(self.norm)
+        self.norm2 = getNorm(self.norm)
+
+
+    def call(self, input_tensor: tf.Tensor):
+        x = self.norm1(input_tensor)
+        x = self.conv_1(tf.nn.relu(x))
+        x = self.norm2(x)
+        x = self.conv_2(tf.nn.relu(x))
+        return x
+    
+
+class ResBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm=norm
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
         self.learned_skip = False
-        self.batch_norm1 = tf.keras.layers.BatchNormalization( )
-        self.batch_norm2 = tf.keras.layers.BatchNormalization()
+        self.norm1 = getNorm(self.norm)
+        self.norm2 = getNorm(self.norm)
 
         if self.filters != input_filter:
             self.learned_skip = True
             self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
-            self.batch_norm3 = tf.keras.layers.BatchNormalization()
+            self.norm3 = getNorm(self.norm)
         
 
     def call(self, input_tensor: tf.Tensor):
-        x = self.batch_norm1(input_tensor)
+        x = self.norm1(input_tensor)
         x = self.conv_1(tf.nn.relu(x))
-        x = self.batch_norm2(x)
+        x = self.norm2(x)
         x = self.conv_2(tf.nn.relu(x))
         skip = (
-            self.conv_3(tf.nn.relu(self.batch_norm3(input_tensor)))
+            self.conv_3(tf.nn.relu(self.norm3(input_tensor)))
             if self.learned_skip
             else input_tensor
         )
@@ -36,16 +65,29 @@ class ResBlock(tf.keras.layers.Layer):
         return output
     
 class UpSample(tf.keras.layers.Layer):
-    def __init__(self, filters, **kwargs):
+    def __init__(self, filters,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
-
+        self.norm=norm
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal')
+        self.norm1 = getNorm(self.norm)
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)
-        return x
+        return self.norm1(x)
 
+class DownSample(tf.keras.layers.Layer):
+    def __init__(self, filters,norm="layernorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm=norm
+    def build(self, input_shape):
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, kernel_size=2, strides=2,padding="same", kernel_initializer = 'he_normal')
+        self.norm1 = getNorm(self.norm)
+    def call(self, input_tensor: tf.Tensor):
+        x = self.conv_1(input_tensor)
+        
+        return self.norm1(x)
 
 class ConvNeXtBlock(tf.keras.layers.Layer):
     r""" ConvNeXt Block. There are two equivalent implementations:
@@ -58,11 +100,12 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         layer_scale_init_value (float): Init value for Layer Scale. Default: 1e-6.
     """
 
-    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6, prefix=''):
+    def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6,norm="layernorm", prefix=''):
         super().__init__()
+        self.norm=norm
         self.dwconv = tf.keras.layers.DepthwiseConv2D(
             kernel_size=7, padding='same')  # depthwise conv
-        self.norm = tf.keras.layers.LayerNormalization()
+        self.norm = getNorm(self.norm)
         # pointwise/1x1 convs, implemented with linear layers
         self.pwconv1 = tf.keras.layers.Dense(4 * dim)
         self.act = Gelu()
@@ -71,9 +114,11 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         self.dim = dim
         self.layer_scale_init_value = layer_scale_init_value
         self.prefix = prefix
+        self.norm0 = getNorm(self.norm)
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
+        self.learned_skip = False
 
         self.gamma = tf.Variable(
             initial_value=self.layer_scale_init_value * tf.ones((self.dim)),
@@ -81,14 +126,15 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
             name=f'{self.prefix}/gamma')
         self.built = True
 
-        if self.filters != input_filter:
+        if self.dim != input_filter:
             self.learned_skip = True
             self.pwconv_skip = tf.keras.layers.Dense(self.dim)
-            self.norm_skip = tf.keras.layers.layers.LayerNormalization()
+            self.norm_skip = getNorm(self.norm)
             self.act_skip = Gelu()
 
-    def call(self, inputs):
-        x = self.dwconv(inputs)
+    def call(self, inputs: tf.Tensor):
+        x=self.norm0(inputs)
+        x = self.dwconv(tf.nn.relu(x))
         # x = x.permute(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
         x = self.norm(x)
         x = self.pwconv1(x)
@@ -98,7 +144,7 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
             x = self.gamma * x
         # x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
         skip = (
-                self.act_skip(self.norm_skip(self.pwconv_skip(inputs)))
+                self.pwconv_skip(self.act_skip(self.norm_skip(inputs)))
                 if self.learned_skip
                 else inputs
             )
