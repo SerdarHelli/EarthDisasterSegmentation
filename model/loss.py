@@ -135,12 +135,11 @@ class GeneralizedDice(tf.keras.losses.Loss):
         return tf.reduce_mean(dices)
     
 class FocalTverskyLoss(tf.keras.losses.Loss):
-    def __init__(self,alpha=0.3,beta=0.7,gamma=4/3, smooth=0.000001, **kwargs):
+    def __init__(self,alpha=0.5,gamma=4/3, smooth=0.000001, **kwargs):
         super().__init__(**kwargs)
         self.smooth=smooth
         self.epsilon=K.epsilon()
         self.alpha = alpha
-        self.beta = beta
         self.gamma = gamma
     def call(self, y_true, y_pred):
 
@@ -151,8 +150,8 @@ class FocalTverskyLoss(tf.keras.losses.Loss):
         FP = K.sum(((1-targets) * inputs))
         FN = K.sum((targets * (1-inputs)))
                
-        Tversky = (TP + self.smooth) / (TP + self.alpha*FP + self.beta*FN + self.smooth)  
-        FocalTversky = K.pow((1 - Tversky), self.gamma)
+        Tversky = (TP + self.smooth) / (TP + self.alpha*FP + (1-self.alpha)*FN + self.smooth)  
+        FocalTversky = K.pow((1 - Tversky), 1/self.gamma)
         return FocalTversky
 
 
