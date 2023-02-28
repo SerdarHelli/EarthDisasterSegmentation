@@ -89,7 +89,7 @@ class DataGen(tf.keras.utils.Sequence):
 class UnetDataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,
-                 batch_size,img_size=512,dilation=True,
+                 batch_size,img_size=512,dilation=True,augmentation=False,
                  ):
       
         pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
@@ -97,7 +97,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
         self.mask_files=pre_target_files
         self.image_files=pre_dis_files
         self.dilation=dilation
-
+        self.augmentation=augmentation
         self.n = len(self.image_files)
         self.batch_size=batch_size
         self.img_size=img_size
@@ -111,15 +111,17 @@ class UnetDataGen(tf.keras.utils.Sequence):
                   A.MedianBlur(blur_limit=3, p=0.1),
                   A.Blur(blur_limit=3, p=0.1),
               ], p=0.2),
-              A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.4),
+              A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.3),
               A.OneOf([
                   A.OpticalDistortion(p=0.3),
                   A.GridDistortion(p=0.1),
               ], p=0.2),        
-              A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=0.1, val_shift_limit=0.1, p=0.2),
+              A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=0.1, val_shift_limit=0.1, p=0.2),
               A.RandomBrightnessContrast(p=0.2), ],
 
          )
+        self.transform_no_aug= A.Compose([
+              A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),])
  
     def __load_data__(self,i):  
         image=cv2.imread(self.image_files[i],cv2.IMREAD_COLOR)
@@ -131,7 +133,12 @@ class UnetDataGen(tf.keras.utils.Sequence):
           mask = cv2.dilate( mask ,kernel,iterations = 1)
           mask=(mask>127)*1
 
-        transformed = self.transform(image=image,mask=mask)
+        if self.augmentation==True:
+            transformed = self.transform(image=image,mask=mask)
+
+        else:
+            transformed = self.transform_no_aug(image=image,mask=mask)
+
         image = transformed['image']
         mask = transformed['mask']
 
