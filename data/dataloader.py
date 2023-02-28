@@ -22,7 +22,7 @@ class DataGen(tf.keras.utils.Sequence):
         self.batch_size=batch_size
         self.img_size=img_size
         self.transform = A.Compose([
-              A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
+              A.CropNonEmptyMaskIfExists (width=img_size, height=img_size,always_apply=True),
               A.HorizontalFlip(p=0.5),
               A.RandomBrightnessContrast(p=0.2), ],
               additional_targets={"image1": "image","mask1": "mask"},
@@ -102,7 +102,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
         self.batch_size=batch_size
         self.img_size=img_size
         self.transform = A.Compose([
-              A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
+              A.CropNonEmptyMaskIfExists (width=img_size, height=img_size,always_apply=True),
               A.RandomRotate90(p=0.6),
               A.Flip(p=0.6),
 
