@@ -1,9 +1,8 @@
 
 import os
 from shapely import wkt
-from shapely.geometry import Polygon
 import numpy as np
-from cv2 import fillPoly, imwrite
+from cv2 import fillPoly
 from PIL import Image
 from typing import List, Tuple
 import json

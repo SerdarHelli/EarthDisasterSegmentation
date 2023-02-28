@@ -10,7 +10,6 @@ import os
 import datetime
 
 
-
 class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)

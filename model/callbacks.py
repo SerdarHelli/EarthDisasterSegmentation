@@ -81,7 +81,7 @@ class SaveCheckpoint(tf.keras.callbacks.Callback):
 
 class LearningRateStepScheduler(tf.keras.callbacks.Callback):
 
-    def __init__(self, initial_lr,step_warmup=5000, verbose=0):
+    def __init__(self, initial_lr,step_warmup=7500, verbose=0):
         super(LearningRateStepScheduler, self).__init__()
 
         self.verbose = verbose

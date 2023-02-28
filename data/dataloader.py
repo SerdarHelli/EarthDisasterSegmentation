@@ -88,7 +88,7 @@ class DataGen(tf.keras.utils.Sequence):
 class UnetDataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,
-                 batch_size,img_size=512,resize_or_crop="resize"
+                 batch_size,img_size=512,dilation=True,
                  ):
       
         pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
@@ -97,17 +97,28 @@ class UnetDataGen(tf.keras.utils.Sequence):
         self.image_files=[]
         self.mask_files.extend(pre_target_files)
         self.image_files.extend(pre_dis_files)
-        self.mask_files.extend(post_target_files)
-        self.image_files.extend(post_dis_files)
+        self.dilation=dilation
 
         self.n = len(self.image_files)
         self.batch_size=batch_size
         self.img_size=img_size
         self.transform = A.Compose([
               A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
-              A.HorizontalFlip(p=0.5),
+              A.RandomRotate90(p=0.6),
+              A.Flip(p=0.6),
+              A.RandomScale(scale_limit=(-0.25, 0.25), p=0.6, interpolation=1),
+              A.OneOf([
+                  A.MotionBlur(p=0.2),
+                  A.MedianBlur(blur_limit=3, p=0.1),
+                  A.Blur(blur_limit=3, p=0.1),
+              ], p=0.2),
+              A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.2),
+              A.OneOf([
+                  A.OpticalDistortion(p=0.3),
+                  A.GridDistortion(p=0.1),
+              ], p=0.2),        
+              A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=0.1, val_shift_limit=0.1, p=0.2),
               A.RandomBrightnessContrast(p=0.2), ],
-
 
          )
  
@@ -115,6 +126,11 @@ class UnetDataGen(tf.keras.utils.Sequence):
         image=cv2.imread(self.image_files[i],cv2.IMREAD_COLOR)
         mask=create_inference_image(self.mask_files[i])
         mask=(mask>0.25)*1
+        if self.dilation==True:
+          mask=np.uint8(mask*255)
+          kernel = np.ones((5,5),np.uint8)
+          mask = cv2.dilate( mask ,kernel,iterations = 1)
+          mask=(mask>127)*1
 
         transformed = self.transform(image=image,mask=mask)
         image = transformed['image']
