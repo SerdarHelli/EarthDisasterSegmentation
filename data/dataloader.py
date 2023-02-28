@@ -85,6 +85,7 @@ class DataGen(tf.keras.utils.Sequence):
     
 
 
+
 class UnetDataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,
@@ -93,10 +94,8 @@ class UnetDataGen(tf.keras.utils.Sequence):
       
         pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
 
-        self.mask_files=[]
-        self.image_files=[]
-        self.mask_files.extend(pre_target_files)
-        self.image_files.extend(pre_dis_files)
+        self.mask_files=pre_target_files
+        self.image_files=pre_dis_files
         self.dilation=dilation
 
         self.n = len(self.image_files)
@@ -106,13 +105,13 @@ class UnetDataGen(tf.keras.utils.Sequence):
               A.RandomSizedCrop(min_max_height=(img_size,img_size),width=img_size, height=img_size,always_apply=True),
               A.RandomRotate90(p=0.6),
               A.Flip(p=0.6),
-              A.RandomScale(scale_limit=(-0.25, 0.25), p=0.6, interpolation=1),
+
               A.OneOf([
                   A.MotionBlur(p=0.2),
                   A.MedianBlur(blur_limit=3, p=0.1),
                   A.Blur(blur_limit=3, p=0.1),
               ], p=0.2),
-              A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.2),
+              A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.4),
               A.OneOf([
                   A.OpticalDistortion(p=0.3),
                   A.GridDistortion(p=0.1),
@@ -143,7 +142,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
 
         mask[np.isnan(mask)] = 0
 
-        return image,mask
+        return np.asarray(image),np.asarray(mask)
 
 
     def __get_batch__(self,index_interval):
@@ -163,7 +162,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
 
     def __getitem__(self, index):
         images,masks=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
-        return (images),(masks)
+        return (np.asarray(images)),(np.asarray(masks))
     
     def __len__(self):
         return self.n // self.batch_size
