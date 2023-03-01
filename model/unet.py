@@ -388,7 +388,7 @@ class UNetModel(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
-        self.loss_1=DiceLoss()
+        self.loss_1=GeneralizedDice()
         self.loss_2=FocalTverskyLoss()
 
 
