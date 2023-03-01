@@ -38,10 +38,11 @@ class SaveCheckpoint(tf.keras.callbacks.Callback):
 
 
     def save_best_model(self,epoch,logs):
-        self.checkpoint_best_path= os.path.join(self.model.checkpoint_dir, "best")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
         current = logs.get(self.monitor)
-        filepath=self.model.checkpoint_prefix
+        self.checkpoint_best_path= os.path.join(self.model.checkpoint_dir, "best")+f"{self.monitor}:{current:.2f}"+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        filepath=self.checkpoint_best_path
         if current is None:
             logging.warning(
                 "Can save best model only with %s available, "

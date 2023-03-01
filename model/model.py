@@ -16,16 +16,13 @@ USegformerConfig={
       "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,  "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,"gradient_clip_value" : 1,
       "classifier_dropout_prob" : 0.1 ,"use_return_dict":True, "layer_norm_eps" : 1e-06,"reshape_last_stage":True, "input_shape":[512,512,3],
       "decoder_hidden_size" : 256,"num_labels":5,"unet_num_res_blocks":2,'unet_num_heads':4,'unet_num_transformer':4,"drop_path_rate":0.1
-
 }
-
 conf = OmegaConf.structured(USegformerConfig)
 """
 
 class USegFormer(tf.keras.Model):
     def __init__(self, config,checkpoint_path,
                  special_checkpoint=None,
-
                  ):
         super(USegFormer,self).__init__()
         self.config=config
@@ -52,20 +49,16 @@ class USegFormer(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
 
-  
-
 
     def build_usegformer(self,):
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
-
         local_map,hidden_states=self.unet_layer(input_pre)
         concatted = tf.keras.layers.Concatenate()([input_post, local_map])
-
         output=self.segformer_layer(concatted,hidden_states)
-
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
         return model
+
 
     def compile(self,**kwargs):
         super().compile(**kwargs)
