@@ -363,7 +363,7 @@ class UNetModel(tf.keras.Model):
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
         self.network=self.build_unet()
-        self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
 
