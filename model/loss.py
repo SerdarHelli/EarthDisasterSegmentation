@@ -42,13 +42,12 @@ class DiceLoss(tf.keras.losses.Loss):
 
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2])
         union = K.sum(y_true, axis=[1,2,]) + K.sum(y_pred, axis=[1,2])
-        dice= 1- (2. * intersection + self.smooth) / (union + self.smooth)
+        dice= 1- ((2. * intersection + self.smooth) / (union + self.smooth))
         
         if self.weight!=None:   
             dice=dice*self.weight
-            dice=K.sum(dice)
-        else:
-            dice=K.mean(dice,axis=0)
+  
+        dice=K.mean(dice)
         return dice
     
     
