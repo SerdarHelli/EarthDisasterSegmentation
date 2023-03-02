@@ -21,7 +21,7 @@ conf = OmegaConf.structured(USegformerConfig)
 """
 
 class USegFormer(tf.keras.Model):
-    def __init__(self, config,checkpoint_path,
+    def __init__(self, config,checkpoint_path,unet_checkpoint_path,
                  special_checkpoint=None,
                  ):
         super(USegFormer,self).__init__()
@@ -32,7 +32,9 @@ class USegFormer(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-        self.unet_layer=UNet_AutoEncoder(config)
+
+        self.load_unetmodel(config,unet_checkpoint_path)
+
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.25
@@ -48,6 +50,14 @@ class USegFormer(tf.keras.Model):
             
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
+    
+    def load_unetmodel(self,config,unet_checkpoint_path):
+        unet_model=UNetModel(config,checkpoint_path=unet_checkpoint_path)
+        unet_model.compile()
+        print("Loading Unet Model")
+        unet_model.load()
+        self.unet_layer=self.unet_model.network.get_layer("u_net__auto_encoder" )
+        del unet_model
 
 
     def build_usegformer(self,):
