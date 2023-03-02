@@ -74,7 +74,7 @@ class USegFormer(tf.keras.Model):
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=DiceLoss(weight=[ 0.1 , 0.1 , 0.6 , 0.3 ,0.2])
-        self.loss_2=FocalTverskyLoss()
+        self.loss_2=FocalTverskyLoss(alpha=0.7)
 
 
     @property
@@ -202,8 +202,8 @@ class USegFormer(tf.keras.Model):
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
         
-        loss_2=self.loss_1(multilabel_map,y_multilabel_resized)
-        loss_1=self.loss_2(multilabel_map,y_multilabel_resized)
+        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
+        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
