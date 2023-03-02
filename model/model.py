@@ -32,9 +32,8 @@ class USegFormer(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-
+        self.unet_layer=None
         self.load_unetmodel(config,unet_checkpoint_path)
-
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.25
@@ -56,7 +55,7 @@ class USegFormer(tf.keras.Model):
         unet_model.compile()
         print("Loading Unet Model")
         unet_model.load()
-        self.unet_layer=self.unet_model.network.get_layer("u_net__auto_encoder" )
+        self.unet_layer=unet_model.network.get_layer("u_net__auto_encoder" )
         del unet_model
 
 
@@ -82,10 +81,7 @@ class USegFormer(tf.keras.Model):
     def metrics(self):
         return [
             self.loss_1_tracker,
-            self.loss_1_local_tracker,
             self.loss_2_tracker,
-            self.loss_2_local_tracker,
-            self.iou_score_local_tracker,
             self.iou_score_tracker,
             self.challenge_score_tracker,
         ]
