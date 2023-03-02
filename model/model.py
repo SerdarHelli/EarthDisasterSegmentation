@@ -36,8 +36,8 @@ class USegFormer(tf.keras.Model):
         self.load_unetmodel(config,unet_checkpoint_path)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
-        self.threshold_value=0.25
-        self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
+        self.threshold_value=0.1
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice(*0.25)_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="GenFocalTversky_loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
@@ -174,7 +174,7 @@ class USegFormer(tf.keras.Model):
 
 
 
-            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
+            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*0.25
             loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
             loss=loss_1+loss_2
 
@@ -202,8 +202,8 @@ class USegFormer(tf.keras.Model):
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
         
+        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*0.25
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
-        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
         challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
