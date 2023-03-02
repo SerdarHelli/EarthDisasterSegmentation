@@ -251,10 +251,11 @@ class TFSegformerMLP(tf.keras.layers.Layer):
     def __init__(self, config, **kwargs):
         super().__init__(**kwargs)
         decoder_hidden_size=config.decoder_hidden_size
+        self.norm=tf.keras.layers.LayerNormalization()
         self.proj = tf.keras.layers.Dense(decoder_hidden_size, name="proj")
 
     def call(self, hidden_states: tf.Tensor):
-
+        hidden_states=self.norm(hidden_states)
         hidden_states = self.proj(hidden_states)
         return hidden_states
 
@@ -480,10 +481,14 @@ class TFSegformerDecodeHead(tf.keras.Model):
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         self.config=config
         mlps = []
+        unet_mlps=[]
         for i in range(config.num_encoder_blocks):
             mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
             mlps.append(mlp)
+            unet_mlp = TFSegformerMLP(config, name=f"unet_linear_c.{i}")
+            unet_mlps.append(unet_mlp)
         self.mlps = mlps
+        self.unet_mlps = unet_mlps
 
         # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = tf.keras.layers.Conv2D(
@@ -500,7 +505,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
         batch_size = tf.shape(encoder_hidden_states[-1])[0]
 
         all_hidden_states = ()
-        for idx,(encoder_hidden_state, mlp) in enumerate(zip(encoder_hidden_states, self.mlps)):
+        for idx,(encoder_hidden_state, mlp,unet_mlp) in enumerate(zip(encoder_hidden_states, self.mlps,self.unet_mlps)):
             if self.config.reshape_last_stage is False and len(tf.shape(encoder_hidden_state)) == 3:
                 height = tf.math.sqrt(tf.cast(tf.shape(encoder_hidden_state)[1], tf.float32))
                 height = width = tf.cast(height, tf.int32)
@@ -510,10 +515,11 @@ class TFSegformerDecodeHead(tf.keras.Model):
             
 
             encoder_hidden_state = tf.transpose(encoder_hidden_state, perm=[0, 2, 3, 1])
-            encoder_hidden_state=tf.concat([encoder_hidden_state,unet_hidden_states[idx]],axis=-1)
             height = tf.shape(encoder_hidden_state)[1]
             width = tf.shape(encoder_hidden_state)[2]
             encoder_hidden_state = mlp(encoder_hidden_state)
+            unet_hidden_state = unet_mlp(unet_hidden_states[idx])
+            encoder_hidden_state=tf.concat([encoder_hidden_state,unet_hidden_state],axis=-1)
 
             # upsample
             temp_state = tf.transpose(encoder_hidden_states[0], perm=[0, 2, 3, 1])

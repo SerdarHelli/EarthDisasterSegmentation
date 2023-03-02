@@ -2,6 +2,7 @@
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
 from model.unet import *
+from model.layers import SPADE
 import numpy as np
 import tensorflow.keras.backend as K
 from model.loss import *
@@ -56,13 +57,15 @@ class USegFormer(tf.keras.Model):
         print("Loading Unet Model")
         unet_model.load()
         self.unet_layer=unet_model.network.get_layer("u_net__auto_encoder" )
+        self.unet_layer.trainable=False
         del unet_model
-
 
     def build_usegformer(self,):
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         local_map,hidden_states=self.unet_layer(input_pre)
+        self.unet_layer.trainable=False
+        #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
         concatted = tf.keras.layers.Concatenate()([input_post, local_map])
         output=self.segformer_layer(concatted,hidden_states)
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
