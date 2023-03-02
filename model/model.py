@@ -74,7 +74,7 @@ class USegFormer(tf.keras.Model):
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=DiceLoss(weight=[ .1 , .1 , .6 , .3 ,.2])
-        self.loss_2=GeneralizedFocalTverskyLoss(alpha=0.7)
+        self.loss_2=GeneralizedFocalTverskyLoss()
 
 
     @property
