@@ -46,8 +46,9 @@ class DiceLoss(tf.keras.losses.Loss):
         
         if self.weight!=None:   
             dice=dice*self.weight
-            
-        dice=K.mean(dice,axis=0)
+            dice=K.sum(dice)
+        else:
+            dice=K.mean(dice,axis=0)
         return dice
     
     
@@ -107,6 +108,30 @@ class ComboLoss(tf.keras.losses.Loss):
         return combo_loss
 """
 
+class GeneralizedFocalTverskyLoss(tf.keras.losses.Loss):
+    def __init__(self,gamma=4/3, smooth=0.000001, **kwargs):
+        super().__init__(**kwargs)
+        self.smooth=smooth
+        self.epsilon=K.epsilon()
+        self.gamma = gamma
+        
+    def call(self, y_true, y_pred):
+        y_true_shape = tf.shape(y_true)
+        hwc_shape= y_true_shape[1]*y_true_shape[2]* y_true_shape[3]
+        targets = tf.reshape(y_true, [-1, hwc_shape])
+        inputs = tf.reshape(y_pred, [-1, hwc_shape])
+        
+        weights=K.sum(targets,axis=1)/tf.cast(hwc_shape, dtype=tf.float32)
+        weights=K.clip(1-weights,0.3,0.7)
+        #True Positives, False Positives & False Negatives
+        TP = K.sum((inputs * targets),axis=1)
+        FP = K.sum(((1-targets) * inputs),axis=1)
+        FN = K.sum((targets * (1-inputs)),axis=1)
+               
+        Tversky = (TP + self.smooth) / (TP + weights*FP + weights*FN + self.smooth)  
+        
+        FocalTversky = K.mean(K.pow((1 - Tversky), 1/self.gamma))
+        return FocalTversky
 
 
 class GeneralizedDice(tf.keras.losses.Loss):

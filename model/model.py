@@ -37,8 +37,8 @@ class USegFormer(tf.keras.Model):
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.25
-        self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
-        self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="GenFocalTversky_loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
 
@@ -73,8 +73,8 @@ class USegFormer(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
-        self.loss_1=DiceLoss(weight=[ 0.1 , 0.1 , 0.6 , 0.3 ,0.2])
-        self.loss_2=FocalTverskyLoss(alpha=0.7)
+        self.loss_1=DiceLoss(weight=[ .1 , .1 , .6 , .3 ,.2])
+        self.loss_2=GeneralizedFocalTverskyLoss(alpha=0.7)
 
 
     @property
