@@ -10,6 +10,7 @@ import os
 import datetime
 
 """
+
 from omegaconf import OmegaConf
 USegformerConfig={
      "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],"lr":1.5e-4,"weight_decay":1e-6,
@@ -39,9 +40,8 @@ class USegFormer(tf.keras.Model):
         self.network=self.build_usegformer()
         self.threshold_value=0.1
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
-        self.loss_2_tracker = tf.keras.metrics.Mean(name="GenFocalTversky_loss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="GeneralizedFocalTversky_Loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
-        self.challenge_score_tracker= tf.keras.metrics.Mean(name="challenge_score")
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
@@ -74,8 +74,8 @@ class USegFormer(tf.keras.Model):
 
     def compile(self,**kwargs):
         super().compile(**kwargs)
-        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
-                                                              use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
+        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
+                                                              use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceLoss(weight=[ .1 , .1 , .6 , .3 ,.2])
         self.loss_2=GeneralizedFocalTverskyLoss()
 
@@ -86,7 +86,6 @@ class USegFormer(tf.keras.Model):
             self.loss_1_tracker,
             self.loss_2_tracker,
             self.iou_score_tracker,
-            self.challenge_score_tracker,
         ]
     
     def make_threshold(self,multi_label,):
@@ -106,16 +105,7 @@ class USegFormer(tf.keras.Model):
         return dice
 
 
-    def challange_score(self,y_true,y_pred):
-        y_true_loc=K.sum(y_true,axis=[3])
-        y_true_loc = tf.numpy_function(self.make_threshold, [y_true_loc], tf.float32)
-        y_pred_loc=K.sum(y_pred,axis=[3])
-        y_pred_loc = tf.numpy_function(self.make_threshold, [y_pred_loc], tf.float32)
-        loc_dice=self.dice_score(y_true_loc,y_pred_loc)
-        multi_dice=self.dice_score(y_true,y_pred)
-        score=(loc_dice*0.3)+(multi_dice*0.7)
-        return score
-        
+
 
 
     def load(self,usage="train",return_epoch_number=True):
@@ -185,12 +175,10 @@ class USegFormer(tf.keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
-        self.challenge_score_tracker.update_state(challenge_score)
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -209,11 +197,9 @@ class USegFormer(tf.keras.Model):
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        challenge_score=self.challange_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
-        self.challenge_score_tracker.update_state(challenge_score)
         results = {m.name: m.result() for m in self.metrics}
         return results
