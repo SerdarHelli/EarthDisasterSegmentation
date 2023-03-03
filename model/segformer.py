@@ -492,20 +492,12 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
         # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = tf.keras.layers.Conv2D(
-            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse",activity_regularizer=tf.keras.regularizers.L2(0.00001)
+            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse"
         )
         self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
         self.activation = tf.keras.layers.Activation("relu")
 
         self.dropout = tf.keras.layers.Dropout(config.classifier_dropout_prob)
-
-        self.linear_fuse_2 = tf.keras.layers.Conv2D(
-            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse_2"
-        )
-        self.batch_norm_2 = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm_2")
-        self.activation_2 = tf.keras.layers.Activation("relu")
-
-        self.dropout_2 = tf.keras.layers.Dropout(config.classifier_dropout_prob)
 
 
 
@@ -543,10 +535,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
         hidden_states = self.batch_norm(hidden_states, training=training)
         hidden_states = self.activation(hidden_states)
         hidden_states = self.dropout(hidden_states, training=training)
-        hidden_states = self.linear_fuse_2(hidden_states)
-        hidden_states = self.batch_norm_2(hidden_states, training=training)
-        hidden_states = self.activation_2(hidden_states)
-        hidden_states = self.dropout_2(hidden_states, training=training)
+    
         # logits of shape (batch_size, height/4, width/4, num_labels)
         logits = self.classifier(hidden_states)
 
