@@ -18,34 +18,6 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
     ref : KerasCv ref https://github.com/keras-team/keras-cv/blob/v0.4.2/keras_cv/layers/regularization/squeeze_excite.py#L20
     Implements Squeeze and Excite block as in
     [Squeeze-and-Excitation Networks](https://arxiv.org/pdf/1709.01507.pdf).
-    This layer tries to use a content aware mechanism to assign channel-wise
-    weights adaptively. It first squeezes the feature maps into a single value
-    using global average pooling, which are then fed into two Conv1D layers,
-    which act like fully-connected layers. The first layer reduces the
-    dimensionality of the feature maps by a factor of `ratio`, whereas the second
-    layer restores it to its original value.
-    The resultant values are the adaptive weights for each channel. These
-    weights are then multiplied with the original inputs to scale the outputs
-    based on their individual weightages.
-    Args:
-        filters: Number of input and output filters. The number of input and
-            output filters is same.
-        ratio: Ratio for bottleneck filters. Number of bottleneck filters =
-            filters * ratio. Defaults to 0.25.
-        squeeze_activation: (Optional) String, callable (or tf.keras.layers.Layer) or
-            tf.keras.activations.Activation instance denoting activation to
-            be applied after squeeze convolution. Defaults to `relu`.
-        excite_activation: (Optional) String, callable (or tf.keras.layers.Layer) or
-            tf.keras.activations.Activation instance denoting activation to
-            be applied after excite convolution. Defaults to `sigmoid`.
-    Usage:
-    ```python
-    # (...)
-    input = tf.ones((1, 5, 5, 16), dtype=tf.float32)
-    x = tf.keras.layers.Conv2D(16, (3, 3))(input)
-    output = keras_cv.layers.SqueezeAndExciteBlock(16)(x)
-    # (...)
-    ```
     """
 
     def __init__(
@@ -99,6 +71,69 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
     
+
+
+class SEResBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,cardinality,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
+        self.cardinality=cardinality
+
+
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        grouped_channels=int(self.filters//self.cardinality)
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.learned_skip = False
+        self.norm1 = getNorm(self.norm_str)
+        self.norm2 = getNorm(self.norm_str)
+        self.se= SqueezeAndExcite2D(filters=self.filters)
+        if self.filters != input_filter:
+            self.learned_skip = True
+            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+            self.norm3 = getNorm(self.norm_str)
+
+        self.grouped_convs=[]
+        for c in range(self.cardinality):
+            group=[]
+            group.append(tf.keras.layers.Lambda(lambda z: z[:, :, :, c * grouped_channels:(c + 1) * grouped_channels]
+                        if tf.keras.backend.image_data_format() == 'channels_last' else
+                        lambda z: z[:, c * grouped_channels:(c + 1) * grouped_channels, :, :]))
+            group.append(tf.keras.layers.Conv2D(grouped_channels, (3, 3), padding='same', use_bias=False,
+                                                             kernel_initializer='he_normal', kernel_regularizer=tf.keras.regularizers.L2(1e-6)))
+            self.grouped_convs.append(group)
+            
+    def call(self, input_tensor: tf.Tensor):
+        x = self.norm1(input_tensor)
+        x = self.conv_1(tf.nn.relu(x))
+        
+        groups=[]
+        for blocks in self.grouped_convs:
+            for block in blocks:
+                x=block(x)
+            groups.append(x)
+
+        x=tf.concat(groups, axis=-1)
+        x = self.norm2(x)
+        x = self.conv_2(tf.nn.relu(x))
+        skip = (
+            self.conv_3(tf.nn.relu(self.norm3(input_tensor)))
+            if self.learned_skip
+            else input_tensor
+        )
+        x=self.se(x)
+        output = skip + x
+
+        return output
+
+
+
+
+
+
+
 class ConvBlock(tf.keras.layers.Layer):
     def __init__(self, filters,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)

@@ -182,7 +182,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
         return x,hidden_states
     
     
-class USENet_AutoEncoder(tf.keras.layers.Layer):
+class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
@@ -204,10 +204,9 @@ class USENet_AutoEncoder(tf.keras.layers.Layer):
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
                 for _ in range(self.unet_num_res_blocks):
                     idx_x=idx_x+1
-                    x = ResBlock(hidden_size,norm=self.norm)
+                    x = SEResBlock(hidden_size,cardinality=9,norm=self.norm)
                     self.encoder_blocks.append(x)
-                idx_x=idx_x+1    
-                x=SqueezeAndExcite2D(hidden_size)
+
                 self.encoder_blocks.append(x)
 
                 if hidden_size != self.unet_hidden_sizes[-1]:
@@ -217,16 +216,15 @@ class USENet_AutoEncoder(tf.keras.layers.Layer):
                   self.encoder_blocks.append(x)
        
 
-        self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
-                            ResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
+        self.middle_blocks=[SEResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
+                            SEResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
                 for _ in range(self.unet_num_res_blocks):
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.decoder_blocks.append(x)
-                x=SqueezeAndExcite2D(hidden_size)
-                self.decoder_blocks.append(x)
+
                 if i!=0:
 
                    x = UpSample(hidden_size,norm=self.norm)
