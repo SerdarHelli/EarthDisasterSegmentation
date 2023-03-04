@@ -27,6 +27,10 @@ model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_checkpoint_path=conf.
 model.compile()
 returned_epoch=model.load()
 
+path_conf=os.path.join(checkpoint_path,"config.yaml")
+with open(path_conf ,'w') as file:
+       OmegaConf.save(config=conf, f=file)
+
 callbacks=[
     LearningRateStepScheduler(conf.lr,step_warmup=conf.step_warmup),
     SaveCheckpoint(number_epoch=epochs, monitor="val_iou",per_epoch=None,initial_value_threshold=0.4,  mode="max",save_best=True),
