@@ -8,7 +8,7 @@ input_shape:
 - 3
 gradient_clip_value: 1
 batch_size: 4
-epochs: 100
+epochs: 71
 train_path: 
 - "/content/train"
 test_path:
