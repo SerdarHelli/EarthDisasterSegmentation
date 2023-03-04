@@ -60,10 +60,7 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
                 for _ in range(self.unet_num_res_blocks):
-                    if hidden_size in self.unet_hidden_sizes[:2]:
-                        x = ConvBlock(hidden_size,norm=self.norm)
-                    else:
-                        x = ConvNeXtBlock(hidden_size,drop_path=self.dp_rates[i],norm=self.norm)
+                    x = ConvBlock(hidden_size,norm=self.norm)
                     self.decoder_blocks.append(x)
                 
                 if i!=0:
@@ -209,6 +206,7 @@ class USENet_AutoEncoder(tf.keras.layers.Layer):
                     idx_x=idx_x+1
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.encoder_blocks.append(x)
+                idx_x=idx_x+1    
                 x=SqueezeAndExcite2D(hidden_size)
                 self.encoder_blocks.append(x)
 
