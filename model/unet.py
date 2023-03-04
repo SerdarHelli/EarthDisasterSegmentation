@@ -9,32 +9,36 @@ from model.loss import *
 import os
 import datetime
 
+from utils.utils import instantiate_from_config
 
 class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
-    def __init__(self, config, **kwargs):
+    def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
-        self.config = config
-        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.drop_path_rate=drop_path_rate
+        self.depths=depths
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
         self.norm="layernorm"
 
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
-        unet_depths=self.config.depths
-        unet_depths.append(self.config.depths[-1])
-        unet_depths.append(self.config.depths[-1])
+        unet_depths=self.depths
+        unet_depths.append(self.depths[-1])
+        unet_depths.append(self.depths[-1])
 
-        self.dp_rates = [x for x in tf.linspace(0.0, self.config.drop_path_rate, sum(unet_depths))]
+        self.dp_rates = [x for x in tf.linspace(0.0, self.drop_path_rate, sum(unet_depths))]
 
-        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
         self.encoder_blocks=[]
         self.concat_idx=[]
         self.decoder_blocks=[]
         self.hidden_states_idx=[]
         idx_x=0
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     idx_x=idx_x+1
 
                     if hidden_size in self.unet_hidden_sizes[:2]:
@@ -55,7 +59,7 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     if hidden_size in self.unet_hidden_sizes[:2]:
                         x = ConvBlock(hidden_size,norm=self.norm)
                     else:
@@ -68,7 +72,6 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
       
 
         self.norm = getNorm(self.norm)
-        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.config.unet_num_transformer,num_heads=self.config.unet_num_heads)
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
 
     def call(self, input_tensor: tf.Tensor):
@@ -103,25 +106,28 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
 
 
 class UTransNet_AutoEncoder(tf.keras.layers.Layer):
-    def __init__(self, config, **kwargs):
+    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
-        self.config = config
-        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.unet_num_transformer=unet_num_transformer
+        self.unet_num_heads=unet_num_heads
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
         self.norm="batchnorm"
 
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
 
-        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
         self.encoder_blocks=[]
         self.concat_idx=[]
         self.decoder_blocks=[]
         self.hidden_states_idx=[]
         idx_x=0
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     idx_x=idx_x+1
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.encoder_blocks.append(x)
@@ -139,7 +145,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.decoder_blocks.append(x)
                 
@@ -149,7 +155,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
                    self.decoder_blocks.append(x)
 
         self.norm = getNorm(self.norm)
-        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.config.unet_num_transformer,num_heads=self.config.unet_num_heads)
+        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
 
     def call(self, input_tensor: tf.Tensor):
@@ -180,25 +186,26 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
     
     
 class USENet_AutoEncoder(tf.keras.layers.Layer):
-    def __init__(self, config, **kwargs):
+    def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
-        self.config = config
-        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks=unet_num_res_blocks
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
         self.norm="batchnorm"
 
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
 
-        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
         self.encoder_blocks=[]
         self.concat_idx=[]
         self.decoder_blocks=[]
         self.hidden_states_idx=[]
         idx_x=0
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     idx_x=idx_x+1
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.encoder_blocks.append(x)
@@ -217,7 +224,7 @@ class USENet_AutoEncoder(tf.keras.layers.Layer):
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.decoder_blocks.append(x)
                 x=SqueezeAndExcite2D(hidden_size)
@@ -258,25 +265,26 @@ class USENet_AutoEncoder(tf.keras.layers.Layer):
 
 
 class UNet_AutoEncoder(tf.keras.layers.Layer):
-    def __init__(self, config, **kwargs):
+    def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
-        self.config = config
-        self.unet_hidden_sizes=[int(x) for x in config.hidden_sizes]
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0])
-        self.unet_hidden_sizes.insert(0,config.hidden_sizes[0]//2)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks=unet_num_res_blocks
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
         self.norm="batchnorm"
 
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
 
-        self.conv_first=tf.keras.layers.Conv2D(self.config.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
         self.encoder_blocks=[]
         self.concat_idx=[]
         self.decoder_blocks=[]
         self.hidden_states_idx=[]
         idx_x=0
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     idx_x=idx_x+1
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.encoder_blocks.append(x)
@@ -294,7 +302,7 @@ class UNet_AutoEncoder(tf.keras.layers.Layer):
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
-                for _ in range(self.config.unet_num_res_blocks):
+                for _ in range(self.unet_num_res_blocks):
                     x = ResBlock(hidden_size,norm=self.norm)
                     self.decoder_blocks.append(x)
                 
@@ -335,19 +343,6 @@ class UNet_AutoEncoder(tf.keras.layers.Layer):
 
 
 
-"""
-from omegaconf import OmegaConf
-USegformerConfig={
-     "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],"lr":1.5e-4,"weight_decay":1e-6,
-      "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,"use_ema":True,"ema_momentum":0.9999,
-      "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,  "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,"gradient_clip_value" : 1,
-      "classifier_dropout_prob" : 0.1 ,"use_return_dict":True, "layer_norm_eps" : 1e-06,"reshape_last_stage":True, "input_shape":[512,512,3],
-      "decoder_hidden_size" : 256,"num_labels":5,"unet_num_res_blocks":2,'unet_num_heads':4,'unet_num_transformer':4,
-
-}
-
-conf = OmegaConf.structured(USegformerConfig)
-"""
 
 class UNetModel(tf.keras.Model):
     def __init__(self, config,checkpoint_path,
@@ -380,7 +375,8 @@ class UNetModel(tf.keras.Model):
 
     def build_unet(self,):
         input_image = tf.keras.Input(shape=self.shape_input)
-        local_map,hidden_states=UNet_AutoEncoder(self.config)(input_image)
+        unet_layer=instantiate_from_config(self.config.unet)
+        local_map,hidden_states=unet_layer(input_image)
         model = tf.keras.Model(inputs=input_image, outputs=local_map)
         return model
 

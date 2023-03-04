@@ -1,0 +1,34 @@
+lr: 0.00015
+weight_decay: 1.0e-06
+use_ema: true
+ema_momentum: 0.9999
+input_shape:
+- 512
+- 512
+- 3
+gradient_clip_value: 1
+batch_size: 4
+epochs: 100
+train_path: 
+- "/content/train"
+test_path:
+- "/content/hold"
+checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_2"
+step_warmup: 5000
+unet :
+  target: model.unet.UNet_AutoEncoder
+  params:
+    hidden_sizes:
+      - 64
+      - 128
+      - 320
+      - 512
+    unet_num_res_blocks: 2
+    unet_num_heads: 8
+    unet_num_transformer: 8
+    depths:
+      - 2
+      - 2
+      - 2
+      - 2
+    drop_path_rate: 0.1

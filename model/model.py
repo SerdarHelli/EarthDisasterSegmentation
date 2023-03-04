@@ -9,18 +9,7 @@ from model.loss import *
 import os
 import datetime
 
-"""
 
-from omegaconf import OmegaConf
-USegformerConfig={
-     "num_channels": 3, "num_encoder_blocks" : 4 ,"depths" : [2, 2, 2, 2] ,"sr_ratios" : [8, 4, 2, 1],"lr":1.5e-4,"weight_decay":1e-6,
-      "hidden_sizes" : [32, 64, 160, 256], "patch_sizes" : [7, 3, 3, 3] ,"use_ema":True,"ema_momentum":0.9999,
-      "strides" : [4, 2, 2, 2], "num_attention_heads" : [1, 2, 5, 8] ,"mlp_ratios" : [4, 4, 4, 4] ,  "attention_probs_dropout_prob" : 0.0,"output_hidden_states":False,"output_attentions":False,"gradient_clip_value" : 1,
-      "classifier_dropout_prob" : 0.1 ,"use_return_dict":True, "layer_norm_eps" : 1e-06,"reshape_last_stage":True, "input_shape":[512,512,3],
-      "decoder_hidden_size" : 256,"num_labels":5,"unet_num_res_blocks":2,'unet_num_heads':4,'unet_num_transformer':4,"drop_path_rate":0.1
-}
-conf = OmegaConf.structured(USegformerConfig)
-"""
 
 class USegFormer(tf.keras.Model):
     def __init__(self, config,checkpoint_path,unet_checkpoint_path,
@@ -76,7 +65,7 @@ class USegFormer(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
-        self.loss_1=DiceLoss(weight=[ .1 , .1 , .6 , .3 ,.2])
+        self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
         self.loss_2=GeneralizedFocalTverskyLoss()
 
 
@@ -98,11 +87,18 @@ class USegFormer(tf.keras.Model):
         iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
         return iou
     
-    def dice_score(self,y_true, y_pred, smooth=1):
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
+    def dice_classes_score(self,y_true, y_pred, smooth=1):
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2])
+        union = K.sum(y_true, axis=[1,2]) + K.sum(y_pred, axis=[1,2])
         dice= K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
-        return dice
+        dices={
+            "nodamage":dice[0],
+            "minordamage":dice[1],
+            "majordamage":dice[2],
+            "destroyed":dice[3],
+            "unclassified":dice[4],
+        }
+        return dices
 
 
 
@@ -197,6 +193,13 @@ class USegFormer(tf.keras.Model):
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
+        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        classes = list(dices.keys())
+        tf.summary.scalar(classes[0], data=dices[0], step=self.checkpoint.step)
+        tf.summary.scalar(classes[1], data=dices[1], step=self.checkpoint.step)
+        tf.summary.scalar(classes[2], data=dices[2], step=self.checkpoint.step)
+        tf.summary.scalar(classes[3], data=dices[3], step=self.checkpoint.step)
+        tf.summary.scalar(classes[4], data=dices[4], step=self.checkpoint.step)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)

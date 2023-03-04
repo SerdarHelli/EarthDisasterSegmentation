@@ -1,12 +1,12 @@
 
+import importlib
 
-def instantiate_from_config(config,reload=False):
+def instantiate_from_config(config,reload=True):
     if not "target" in config:
         raise KeyError("Expected key `target` to instantiate.")
     return get_obj_from_str(config["target"],reload)(**config.get("params", dict()))
 
 def get_obj_from_str(string, reload=False):
-    import importlib
     module, cls = string.rsplit(".", 1)
     if reload:
         module_imp = importlib.import_module(module)
