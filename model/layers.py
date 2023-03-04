@@ -194,7 +194,7 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
     def __init__(self, dim, drop_path=0., layer_scale_init_value=1e-6,norm="layernorm", prefix=''):
         super().__init__()
         self.norm_str=norm
-        self.dwconv = tf.keras.layers.Conv2D(filters=dim,groups=dim,
+        self.dwconv = tf.keras.layers.DepthwiseConv2D(
             kernel_size=7, padding='same')  # depthwise conv
         self.norm1 = getNorm(self.norm_str)
         # pointwise/1x1 convs, implemented with linear layers
