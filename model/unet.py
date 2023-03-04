@@ -203,12 +203,14 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
         idx_x=0
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
                 for _ in range(self.unet_num_res_blocks):
-                    idx_x=idx_x+1
-                    x = SEResBlock(hidden_size,cardinality=9,norm=self.norm)
-                    self.encoder_blocks.append(x)
+                  idx_x=idx_x+1
 
-                self.encoder_blocks.append(x)
-
+                  if hidden_size in self.unet_hidden_sizes[:2]:
+                    x = ConvBlock(hidden_size,norm=self.norm)
+                  else:
+                    x = SEResBlock(hidden_size,cardinality=8,norm=self.norm)
+                    
+                  self.encoder_blocks.append(x)
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
@@ -216,8 +218,8 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
                   self.encoder_blocks.append(x)
        
 
-        self.middle_blocks=[SEResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
-                            SEResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
+        self.middle_blocks=[SEResBlock(self.unet_hidden_sizes[-1],cardinality=8,norm=self.norm),
+                            SEResBlock(self.unet_hidden_sizes[-1],cardinality=8,norm=self.norm)
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):

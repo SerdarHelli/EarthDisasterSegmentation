@@ -83,52 +83,53 @@ class SEResBlock(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
-        grouped_channels=int(self.filters//self.cardinality)
-        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.grouped_channels=int(self.filters//self.cardinality)
+
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 1, padding="same", use_bias=False,kernel_initializer = 'he_normal')
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+
         self.learned_skip = False
+        self.norm0 = getNorm(self.norm_str)
         self.norm1 = getNorm(self.norm_str)
         self.norm2 = getNorm(self.norm_str)
+        self.norm3 = getNorm(self.norm_str)
+
         self.se= SqueezeAndExcite2D(filters=self.filters)
         if self.filters != input_filter:
             self.learned_skip = True
             self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
-            self.norm3 = getNorm(self.norm_str)
+            self.norm4 = getNorm(self.norm_str)
 
         self.grouped_convs=[]
         for c in range(self.cardinality):
-            group=[]
-            group.append(tf.keras.layers.Lambda(lambda z: z[:, :, :, c * grouped_channels:(c + 1) * grouped_channels]
-                        if tf.keras.backend.image_data_format() == 'channels_last' else
-                        lambda z: z[:, c * grouped_channels:(c + 1) * grouped_channels, :, :]))
-            group.append(tf.keras.layers.Conv2D(grouped_channels, (3, 3), padding='same', use_bias=False,
+            self.grouped_convs.append(tf.keras.layers.Conv2D(self.grouped_channels, (3, 3), padding='same', use_bias=False,
                                                              kernel_initializer='he_normal', kernel_regularizer=tf.keras.regularizers.L2(1e-6)))
-            self.grouped_convs.append(group)
+
             
     def call(self, input_tensor: tf.Tensor):
-        x = self.norm1(input_tensor)
-        x = self.conv_1(tf.nn.relu(x))
-        
+        x = tf.nn.relu(self.norm0(input_tensor))
+        x=self.conv_1(x)
+        x = tf.nn.relu(self.norm1(x))
+
+
         groups=[]
-        for blocks in self.grouped_convs:
-            for block in blocks:
-                x=block(x)
-            groups.append(x)
+        for idx,block in enumerate(self.grouped_convs):
+            groups.append(block(x[:, :, :, idx * self.grouped_channels:(idx + 1) * self.grouped_channels]))
 
         x=tf.concat(groups, axis=-1)
-        x = self.norm2(x)
-        x = self.conv_2(tf.nn.relu(x))
+        x = tf.nn.relu(self.norm2(x))
+        x=self.se(x)
+        x = self.conv_2(x)
+        x = tf.nn.relu(self.norm3(x))
+
         skip = (
-            self.conv_3(tf.nn.relu(self.norm3(input_tensor)))
+            self.conv_3(tf.nn.relu(self.norm4(input_tensor)))
             if self.learned_skip
             else input_tensor
         )
-        x=self.se(x)
+        
         output = skip + x
-
         return output
-
-
 
 
 
