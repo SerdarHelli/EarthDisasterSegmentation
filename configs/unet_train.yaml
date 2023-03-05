@@ -24,8 +24,8 @@ unet :
       - 320
       - 512
     unet_num_res_blocks: 2
-    unet_num_heads: 8
-    unet_num_transformer: 8
+    unet_num_heads: 12
+    unet_num_transformer: 12
     depths:
       - 2
       - 2

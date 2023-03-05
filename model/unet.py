@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.backend as K
-from model.vit_layers import VIT
+from model.vit_layers import VIT,VITCross
 from model.layers import *
 from model.loss import *
 import os
@@ -180,7 +180,95 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
         x=self.final_layer(x)
         x=self.final_activation(x)
         return x,hidden_states
+
+class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
+    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.unet_num_transformer=unet_num_transformer
+        self.unet_num_heads=unet_num_heads
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
+        self.norm="batchnorm"
+
+    def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
+
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        self.vit_connection_blocks={}
+
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ResBlock(hidden_size,norm=self.norm)
+                    self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+                  self.vit_connection_blocks[idx_x-1]=VITCross(filter=hidden_size,embed_dim=hidden_size, 
+                                                               num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
+                      
+                  
+       
+
+        self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
+                            ResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
+        ]
+
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.unet_num_res_blocks):
+                    x = ResBlock(hidden_size,norm=self.norm)
+                    self.decoder_blocks.append(x)
+                
+                if i!=0:
+
+                   x = UpSample(hidden_size,norm=self.norm)
+                   self.decoder_blocks.append(x)
+
+        self.norm = getNorm(self.norm)
+        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
+
+
+
+    def call(self, input_tensor: tf.Tensor):
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        hidden_states=[]
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                hidden_states.append(x)
+            x=block(x)
+
+            skips.append(x)
+
+        x=self.middle_block(x)
+        hidden_states.append(x)
+
+        for idx,block in enumerate(self.decoder_blocks):
+
+       
+            x=block(x)
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
+                  x=vitcross_block(x,skips[(len(self.decoder_blocks)-1)-idx])
+
+        x=tf.nn.relu(self.norm(x))
+        x=self.final_layer(x)
+        x=self.final_activation(x)
+        return x,hidden_states
     
+       
     
 class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
