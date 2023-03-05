@@ -182,6 +182,10 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
         return x,hidden_states
 
 class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
+    """
+        U-Net Transformer: Self and Cross Attention for Medical Image Segmentation
+        ref :https://arxiv.org/pdf/2103.06104.pdf
+    """
     def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
