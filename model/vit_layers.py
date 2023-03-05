@@ -129,7 +129,7 @@ class VIT(tf.keras.layers.Layer):
 
     def build(self,input_shape):
         self.encode_size=int(input_shape[1])
-        self.num_patches=int(input_shape[1])**2
+        self.num_patches=(int(input_shape[1])//self.patch_size)**2
 
         self.blocks=[]
         for i in range(self.num_transformer):
@@ -155,72 +155,8 @@ class VIT(tf.keras.layers.Layer):
         return x
     
 
-class VIT_block_Cross(tf.keras.layers.Layer):
-    def __init__(self, num_heads, key_dim, filter_num_MLP, **kwargs):
-        super(VIT_block_Cross, self).__init__(**kwargs)
-        self.num_heads=num_heads
-        self.key_dim=key_dim
-        self.filter_num_MLP=filter_num_MLP
 
-    def build(self,input_shape):
-        self.norm1=tf.keras.layers.LayerNormalization()
-        self.multi_att=tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads, key_dim=self.key_dim)
-        self.norm2=tf.keras.layers.LayerNormalization()
-        self.mlp=MLP(self.filter_num_MLP)
-    def call(self,inputs,context):
-        V_atten = self.norm1(inputs)
-        V_atten = self.multi_att(V_atten,context)
-        V_add = (V_atten+inputs)
-        V_MLP = V_add 
-        V_MLP = self.norm2(V_MLP)
-        V_MLP = self.mlp(V_MLP)
-        return V_MLP+V_add  
     
 
-class VITCross(tf.keras.layers.Layer):
-    def __init__(self,filter,embed_dim, num_transformer,num_heads,patch_size=1, **kwargs):
-        super(VITCross, self).__init__(**kwargs)
-        self.num_heads=num_heads
-        self.num_transformer=num_transformer
-        self.filter_num_MLP=[embed_dim//2,embed_dim]
-        self.key_dim=embed_dim
-        #its constant
-        self.patch_size=patch_size
-        self.embed_dim=embed_dim
-        self.filter=filter
-        
-    def build(self,input_shape):
-        self.encode_size=int(input_shape[0][1])
-        self.num_patches=int(input_shape[0][1])**2
-        self.blocks=[]
-        for i in range(self.num_transformer):
-            self.blocks.append(VIT_block_Cross(self.num_heads, self.key_dim, self.filter_num_MLP))
 
-
-        self.conv_first=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-        self.conv_final=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-
-        self.patch_ext=PatchExtract((self.patch_size, self.patch_size))
-        self.patch_emb=PatchEmbedding(self.num_patches, self.embed_dim)
-
-        self.conv_first_context=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-        self.patch_ext_context=PatchExtract((self.patch_size, self.patch_size))
-        self.patch_emb_context=PatchEmbedding(self.num_patches, self.embed_dim)
-
-    def call(self,input_tensor):
-        inputs,context=input_tensor
-        x = self.conv_first(inputs)
-        x = self.patch_ext(x)
-        x = self.patch_emb(x)
-        y = self.conv_first_context(context)
-        y = self.patch_ext_context(y)
-        y = self.patch_emb_context(y)
-
-        for block in self.blocks:
-            x=block(x,y)
-        
-        x=tf.reshape(x,(-1,self.encode_size,self.encode_size,self.embed_dim))
-
-        x=self.conv_final(x)
-        return x
     
