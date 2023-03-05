@@ -157,7 +157,7 @@ class VIT(tf.keras.layers.Layer):
 
 class VIT_block_Cross(tf.keras.layers.Layer):
     def __init__(self, num_heads, key_dim, filter_num_MLP, **kwargs):
-        super(VIT_block, self).__init__(**kwargs)
+        super(VIT_block_Cross, self).__init__(**kwargs)
         self.num_heads=num_heads
         self.key_dim=key_dim
         self.filter_num_MLP=filter_num_MLP
@@ -179,7 +179,7 @@ class VIT_block_Cross(tf.keras.layers.Layer):
 
 class VITCross(tf.keras.layers.Layer):
     def __init__(self,filter,embed_dim, num_transformer,num_heads,patch_size=1, **kwargs):
-        super(VIT, self).__init__(**kwargs)
+        super(VITCross, self).__init__(**kwargs)
         self.num_heads=num_heads
         self.num_transformer=num_transformer
         self.filter_num_MLP=[embed_dim//2,embed_dim]
@@ -207,7 +207,8 @@ class VITCross(tf.keras.layers.Layer):
         self.patch_ext_context=PatchExtract((self.patch_size, self.patch_size))
         self.patch_emb_context=PatchEmbedding(self.num_patches, self.embed_dim)
 
-    def call(self,inputs,context):
+    def call(self,input_tensor):
+        inputs,context=input_tensor
         x = self.conv_first(inputs)
         x = self.patch_ext(x)
         x = self.patch_emb(x)

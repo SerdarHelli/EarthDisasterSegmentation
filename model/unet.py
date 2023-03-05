@@ -183,6 +183,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
 
 class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
     """
+        ??? 
         U-Net Transformer: Self and Cross Attention for Medical Image Segmentation
         ref :https://arxiv.org/pdf/2103.06104.pdf
     """
@@ -207,6 +208,9 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
         self.hidden_states_idx=[]
         idx_x=0
         self.vit_connection_blocks={}
+        self.patch_sizes={
+            self.hidden_sizes[-4]:32,self.hidden_sizes[-3]:16,self.hidden_sizes[-2]:8,self.hidden_sizes[-1]:4
+        }
 
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
                 for _ in range(self.unet_num_res_blocks):
@@ -216,14 +220,13 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
 
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
+                  if hidden_size in self.unet_hidden_sizes[2:]:
+                        self.vit_connection_blocks[idx_x-1]=VITCross(filter=hidden_size,embed_dim=hidden_size, patch_size=self.patch_sizes[hidden_size],
+                                                                    num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
                   idx_x=idx_x+1
                   x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
-                  self.vit_connection_blocks[idx_x-1]=VITCross(filter=hidden_size,embed_dim=hidden_size, 
-                                                               num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
-                      
-                  
-       
+     
 
         self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
                             ResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
@@ -265,7 +268,12 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
-                  x=vitcross_block(x,skips[(len(self.decoder_blocks)-1)-idx])
+                  if vitcross_block:
+                      x=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  else:
+                      x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+                      
+                  
 
         x=tf.nn.relu(self.norm(x))
         x=self.final_layer(x)
@@ -297,8 +305,8 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
                 for _ in range(self.unet_num_res_blocks):
                   idx_x=idx_x+1
 
-                  if hidden_size in self.unet_hidden_sizes[:2]:
-                    x = ConvBlock(hidden_size,norm=self.norm)
+                  if hidden_size in self.unet_hidden_sizes[2:]:
+                    x = ResBlock(hidden_size,norm=self.norm)
                   else:
                     x = SEResBlock(hidden_size,cardinality=8,norm=self.norm)
                     
