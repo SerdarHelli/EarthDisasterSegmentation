@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.backend as K
-from model.vit_layers import VIT,VITCross
+from model.vit_layers import *
 from model.layers import *
 from model.loss import *
 import os
@@ -225,8 +225,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
                   self.encoder_blocks.append(x)
      
 
-        self.middle_blocks=
-        [
+        self.middle_blocks=[
             ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
             ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
             PositionalEncoding(),
@@ -270,7 +269,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
                   skip,x=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
-                  x = tf.concat([x, skip, axis=-1])
+                  x = tf.concat([x, skip], axis=-1)
                       
                   
 
