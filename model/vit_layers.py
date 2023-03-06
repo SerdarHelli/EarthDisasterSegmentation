@@ -159,7 +159,7 @@ class VIT(tf.keras.layers.Layer):
 class MultiHeadCrossAttention(tf.keras.layers.Layer):
     def __init__(self, embed_dim: int, num_heads: int) -> None:
         super(MultiHeadCrossAttention, self).__init__()
-        self.filter=embed_dim
+        self.embed_dim=embed_dim
         self.num_heads=num_heads
 
 
@@ -168,27 +168,16 @@ class MultiHeadCrossAttention(tf.keras.layers.Layer):
         self.conv_S = []
 
         self.conv_S.append(tf.keras.layers.MaxPooling2D())
-        self.conv_S.append(tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'))
+        self.conv_S.append(tf.keras.layers.Conv2D(self.embed_dim, kernel_size=1,padding="same", kernel_initializer = 'he_normal'))
         self.conv_S.append(tf.keras.layers.BatchNormalization())
         self.conv_S.append(tf.keras.layers.Activation("relu"))
-
         self.conv_Y = []
-        self.conv_Y.append(tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'))
+        self.conv_Y.append(tf.keras.layers.Conv2D(self.embed_dim, kernel_size=1,padding="same", kernel_initializer = 'he_normal'))
         self.conv_Y.append(tf.keras.layers.BatchNormalization())
         self.conv_Y.append(tf.keras.layers.Activation("relu"))
-       
-
-        self.mha = tf.keras.layers.MultiHeadAttention(key_dim=self.filter, num_heads=self.num_heads)
-
-        self.upsample = []
-        self.upsample.append(tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'))
-        self.upsample.append(tf.keras.layers.BatchNormalization())
-        self.upsample.append(tf.keras.layers.Activation("sigmoid"))
-        self.upsample.append(tf.keras.layers.Conv2DTranspose(self.filter, kernel_size=2,padding="same", strides=2,kernel_initializer = 'he_normal'))
-
-        
-
-    def forward(self, input_tensor) :
+        self.mha = tf.keras.layers.MultiHeadAttention(key_dim=self.embed_dim, num_heads=self.num_heads)
+    
+    def call(self, input_tensor) :
         s,y=input_tensor
         s_enc = s
         for block in self.conv_S:
@@ -197,14 +186,7 @@ class MultiHeadCrossAttention(tf.keras.layers.Layer):
         for block in self.conv_Y:
             y=block(y)
 
-        s=tf.reshape(s,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
-        y=tf.reshape(y,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
-
-        x = self.mha(s,y)
-        x=tf.reshape(x,(-1,tf.shape(s)[1],tf.shape(y)[2],self.embed_dim))
-
-        for block in self.upsample:
-            x=block(x)
+        x = self.mha(y,s)
 
         out=x*s_enc
         return out
@@ -217,18 +199,16 @@ class MultiHeadSelfAttention(tf.keras.layers.Layer):
         self.mha = tf.keras.layers.MultiHeadAttention(key_dim=embed_dim, num_heads=num_heads)
 
 
-    def forward(self, input_tensor) :
+    def call(self, input_tensor) :
         s=input_tensor
-        s=tf.reshape(s,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
         x = self.mha(s,s)
-        x=tf.reshape(x,(-1,tf.shape(s)[1],tf.shape(y)[2],self.embed_dim))
         return x
 
 class PositionalEncoding(tf.keras.layers.Layer):
     def __init__(self) -> None:
         super(PositionalEncoding, self).__init__()
 
-    def forward(self, x) :
+    def call(self, x) :
         shape= tf.shape(x)
         b=int(shape[0])
         h=int(shape[1])
@@ -236,17 +216,18 @@ class PositionalEncoding(tf.keras.layers.Layer):
         c=int(shape[3])
 
         pos_encoding = self.positional_encoding(h * w, c)
-        pos_encoding = tf.repeat(pos_encoding,repeats=[b,1,1])
+        pos_encoding=tf.tile(pos_encoding,[b,1])
+        pos_encoding=tf.reshape(pos_encoding,[b,h * w, c])
         x=tf.reshape(x,(b,h*w,c))+pos_encoding
         return tf.reshape(x,(b,h,w,c))
 
     def positional_encoding(self, length: int, depth: int):
         depth = depth / 2
 
-        positions = tf.range(start=0, limit=length, delta=1)
+        positions = tf.cast(tf.range(start=0, limit=length, delta=1),dtype=tf.float32)
         depths = tf.range(start=0,limit=depth) / depth
 
-        angle_rates = 1 / (10000**depths)
+        angle_rates = tf.cast(1 / (10000**depths),dtype=tf.float32)
         angle_rads = tf.einsum('i,j->ij', positions, angle_rates)
 
         pos_encoding = tf.concat((tf.math.sin(angle_rads), tf.math.cos(angle_rads)), axis=-1)
@@ -258,20 +239,18 @@ class VITCross(tf.keras.layers.Layer):
     def __init__(self,embed_dim,num_heads,**kwargs):
         super(VITCross, self).__init__(**kwargs)
         self.num_heads=num_heads
-        self.key_dim=embed_dim
-        #its constant
         self.embed_dim=embed_dim
-        self.filter=embed_dim
 
     def build(self,input_shape):
         self.mhca=MultiHeadCrossAttention(embed_dim=self.embed_dim,num_heads=self.num_heads)
-        self.positional_encoding=PositionalEncoding()
-        
+        self.positional_encoding_input=PositionalEncoding()
+        self.positional_encoding_context=PositionalEncoding()
+
     def call(self,input_tensor):
         inputs,context=input_tensor
-        x = self.positional_encoding(inputs)
-        context = self.positional_encoding(context)
+        x = self.positional_encoding_input(inputs)
+        context = self.positional_encoding_context(context)
 
-        out=self.mhca(inputs,context)
+        skill=self.mhca([x,context])
 
-        return out,x
+        return x,skill

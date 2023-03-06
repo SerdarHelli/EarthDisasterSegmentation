@@ -292,7 +292,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
-                  skip,x=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  x,skip=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
                   x = tf.concat([x, skip], axis=-1)
                       
                   
