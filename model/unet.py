@@ -398,6 +398,9 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
 
 
 class UNet_AutoEncoder(tf.keras.layers.Layer):
+    """
+    Basic U-Net with ResBlocks
+    """
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
