@@ -12,6 +12,18 @@ import datetime
 from utils.utils import instantiate_from_config
 
 class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
+    """
+        U-Net AutoEncoder:
+
+        Encoder first and second block is consists of convblock .
+        The last four blocks of encoder are convnext block.
+
+        Paper Ref:
+        A ConvNet for the 2020s. CVPR 2022.
+        Zhuang Liu, Hanzi Mao, Chao-Yuan Wu, Christoph Feichtenhofer, Trevor Darrell and Saining Xie
+        Facebook AI Research, UC Berkeley
+
+    """
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
@@ -103,6 +115,19 @@ class UConvNextNet_AutoEncoder(tf.keras.layers.Layer):
 
 
 class UTransNet_AutoEncoder(tf.keras.layers.Layer):
+
+    """
+        U-Net AutoEncoder:
+
+        All blocks are resblock. 
+        
+        Between encoder and decoder , there is vit block.
+        
+        Paper Ref:
+        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
+        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
+
+    """
     def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
@@ -183,7 +208,6 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
 
 class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
     """
-        ??? 
         U-Net Transformer: Self and Cross Attention for Medical Image Segmentation
         ref :https://arxiv.org/pdf/2103.06104.pdf
     """
@@ -281,6 +305,19 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
        
     
 class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
+
+    """
+        U-Net AutoEncoder:
+
+        Encoder first and second block is consists of convblock . They are like steem.
+        The last four blocks of encoder are SE ResNeXt block.
+
+        SE ResNeXt is a variant of a ResNext that employs squeeze-and-excitation blocks to enable the network to perform dynamic channel-wise feature recalibration.
+        Paper Ref:
+        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
+        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
+
+    """
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
         self.hidden_sizes = hidden_sizes
