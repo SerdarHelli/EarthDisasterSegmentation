@@ -208,6 +208,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
 
 class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
     """
+        first,second,third concatanetation has no cross attention , and also cross attention embedding dimesion reduced 4x .bec of computer power
         U-Net Transformer: Self and Cross Attention for Medical Image Segmentation
         ref :https://arxiv.org/pdf/2103.06104.pdf
     """
@@ -242,12 +243,11 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
 
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
-                  if hidden_size in self.unet_hidden_sizes[2:]:
-                        self.vit_connection_blocks[idx_x-1]=VITCross(embed_dim=hidden_size,num_heads=self.unet_num_heads)
                   idx_x=idx_x+1
                   x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
-     
+                  if hidden_size in self.unet_hidden_sizes[3:]:
+                     self.vit_connection_blocks[idx_x-1]=VITCross(embed_dim=hidden_size//4,out_embed_dim=hidden_size,num_heads=self.unet_num_heads)
 
         self.middle_blocks=[
             ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
@@ -267,7 +267,6 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
                    self.decoder_blocks.append(x)
 
         self.norm = getNorm(self.norm)
-        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
 
 
@@ -283,7 +282,9 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
 
             skips.append(x)
 
-        x=self.middle_block(x)
+        for idx,block in enumerate(self.middle_blocks):
+            x=block(x)
+
         hidden_states.append(x)
 
         for idx,block in enumerate(self.decoder_blocks):
@@ -291,8 +292,11 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
        
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
-                  vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
-                  x,skip=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  if ((len(self.decoder_blocks)-1)-idx) in list(self.vit_connection_blocks.keys()):
+                        vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
+                        x,skip=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  else:
+                        skip=skips[(len(self.decoder_blocks)-1)-idx]
                   x = tf.concat([x, skip], axis=-1)
                       
                   
