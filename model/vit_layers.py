@@ -155,70 +155,118 @@ class VIT(tf.keras.layers.Layer):
         return x
     
 
-class VIT_block_Cross(tf.keras.layers.Layer):
-    def __init__(self, num_heads, key_dim, filter_num_MLP, **kwargs):
-        super(VIT_block_Cross, self).__init__(**kwargs)
-        self.num_heads=num_heads
-        self.key_dim=key_dim
-        self.filter_num_MLP=filter_num_MLP
 
-    def build(self,input_shape):
-        self.norm1=tf.keras.layers.LayerNormalization()
-        self.multi_att=tf.keras.layers.MultiHeadAttention(num_heads=self.num_heads, key_dim=self.key_dim)
-        self.norm2=tf.keras.layers.LayerNormalization()
-        self.mlp=MLP(self.filter_num_MLP)
-    def call(self,inputs,context):
-        V_atten = self.norm1(inputs)
-        V_atten = self.multi_att(V_atten,context)
-        V_add = (V_atten+inputs)
-        V_MLP = V_add 
-        V_MLP = self.norm2(V_MLP)
-        V_MLP = self.mlp(V_MLP)
-        return V_MLP+V_add  
-    
+class MultiHeadCrossAttention(tf.keras.layers.Layer):
+    def __init__(self, embed_dim: int, num_heads: int) -> None:
+        super(MultiHeadCrossAttention, self).__init__()
+        self.filter=embed_dim
+
+        self.conv_S = nn.Sequential(
+            tf.keras.layers.MaxPooling2D(),
+            tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Activation("relu")
+        )
+
+        self.conv_Y = nn.Sequential(
+            tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Activation("relu")
+        )
+
+        self.mha = tf.keras.layers.MultiHeadAttention(key_dim=embed_dim, num_heads=num_heads)
+
+        self.upsample = tf.keras.Sequential(
+            tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal'),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Activation("sigmoid"),
+            tf.keras.layers.ConvTranspose2D(self.filter, kernel_size=2,padding="same", strides=2,kernel_initializer = 'he_normal'),
+
+        )
+
+    def forward(self, input_tensor) :
+        s,y=input_tensor
+        s_enc = s
+        s = self.conv_S(s)
+        y = self.conv_Y(y)
+        s=tf.reshape(s,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
+        y=tf.reshape(y,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
+
+        x = self.mha(s,y)
+        x=tf.reshape(x,(-1,tf.shape(s)[1],tf.shape(y)[2],self.embed_dim))
+
+        x = self.upsample(x)
+        out=x*s_enc
+        return out
+
+
+class MultiHeadSelfAttention(tf.keras.layers.Layer):
+    def __init__(self, embed_dim: int, num_heads: int) -> None:
+        super(MultiHeadSelfAttention, self).__init__()
+        self.filter=embed_dim
+
+        self.mha = tf.keras.layers.MultiHeadAttention(key_dim=embed_dim, num_heads=num_heads)
+
+
+    def forward(self, input_tensor) :
+        s=input_tensor
+        s=tf.reshape(s,(-1,tf.shape(s)[1]*tf.shape(y)[2],self.embed_dim))
+        x = self.mha(s,y)
+        x=tf.reshape(x,(-1,tf.shape(s)[1],tf.shape(y)[2],self.embed_dim))
+        return x
+
+class PositionalEncoding(tf.keras.layers.Layer):
+    def __init__(self) -> None:
+        super(PositionalEncoding, self).__init__()
+
+    def forward(self, x) :
+        shape= tf.shape(x)
+        b=int(shape[0])
+        h=int(shape[1])
+        w=int(shape[2])
+        c=int(shape[3])
+
+        pos_encoding = self.positional_encoding(h * w, c)
+        pos_encoding = tf.repeat(pos_encoding,repeats=[b,1,1])
+        x=tf.reshape(x,(b,h*w,c)+pos_encoding
+        return tf.reshape(x,(b,h,w,c)
+
+    def positional_encoding(self, length: int, depth: int):
+        depth = depth / 2
+
+        positions = tf.range(start=0, limit=length, delta=1)
+        depths = tF.range(start=0,limit=depth) / depth
+
+        angle_rates = 1 / (10000**depths)
+        angle_rads = tf.einsum('i,j->ij', positions, angle_rates)
+
+        pos_encoding = tf.concat((tf.math.sin(angle_rads), tf.math.cos(angle_rads)), axis=-1)
+
+        return pos_encoding
+
+
+
+
 
 class VITCross(tf.keras.layers.Layer):
-    def __init__(self,filter,embed_dim, num_transformer,num_heads,patch_size=1, **kwargs):
+    def __init__(self,embed_dim,num_heads,**kwargs):
         super(VITCross, self).__init__(**kwargs)
         self.num_heads=num_heads
-        self.num_transformer=num_transformer
-        self.filter_num_MLP=[embed_dim//2,embed_dim]
         self.key_dim=embed_dim
         #its constant
         self.patch_size=patch_size
         self.embed_dim=embed_dim
-        self.filter=filter
-        
+        self.filter=embed_dim
+
     def build(self,input_shape):
-        self.encode_size=int(input_shape[0][1])
-        self.num_patches=(self.encode_size)**2
-        self.blocks=[]
-        for i in range(self.num_transformer):
-            self.blocks.append(VIT_block_Cross(self.num_heads, self.key_dim, self.filter_num_MLP))
-
-
-        self.conv_first=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-        self.conv_final=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-
-        self.patch_emb=PatchEmbedding(self.num_patches, self.embed_dim)
-
-        self.conv_first_context=tf.keras.layers.Conv2D(self.filter, kernel_size=1,padding="same", kernel_initializer = 'he_normal')
-        self.patch_emb_context=PatchEmbedding(self.num_patches, self.embed_dim)
-
+        self.mhca=MultiHeadCrossAttention(embed_dim=self.embed_dim,num_heads=self.num_heads)
+        self.positional_encoding=PositionalEncoding()
+        
     def call(self,input_tensor):
         inputs,context=input_tensor
-        x = self.conv_first(inputs)
-        x=tf.reshape(x,(-1,self.encode_size*self.encode_size,self.filter))
-        x = self.patch_emb(x)
-        y = self.conv_first_context(context)
-        y=tf.reshape(y,(-1,self.encode_size*self.encode_size,self.filter))
-        y = self.patch_emb_context(y)
+        x = self.positional_encoding(inputs)
+        context = self.positional_encoding(context)
 
-        for block in self.blocks:
-            x=block(x,y)
-        
-        x=tf.reshape(x,(-1,self.encode_size,self.encode_size,self.embed_dim))
+        out=self.mhca(inputs,context)
 
-        x=self.conv_final(x)
-        return x
-    
+        return out,x

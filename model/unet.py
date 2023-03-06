@@ -219,15 +219,18 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   if hidden_size in self.unet_hidden_sizes[2:]:
-                        self.vit_connection_blocks[idx_x-1]=VITCross(filter=hidden_size,embed_dim=hidden_size,
-                                                                    num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
+                        self.vit_connection_blocks[idx_x-1]=VITCross(embed_dim=hidden_size,num_heads=self.unet_num_heads)
                   idx_x=idx_x+1
                   x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
      
 
-        self.middle_blocks=[ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
-                            ResBlock(self.unet_hidden_sizes[-1],norm=self.norm)
+        self.middle_blocks=
+        [
+            ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
+            ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
+            PositionalEncoding(),
+            MultiHeadSelfAttention(embed_dim=self.unet_hidden_sizes[-1],num_heads=self.unet_num_heads)
         ]
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
@@ -266,10 +269,8 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
-                  if vitcross_block:
-                      x=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
-                  else:
-                      x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+                  skip,x=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  x = tf.concat([x, skip, axis=-1])
                       
                   
 
