@@ -247,7 +247,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
                   x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
                   if hidden_size in self.unet_hidden_sizes[3:]:
-                     self.vit_connection_blocks[idx_x-1]=MultiCrossAttention(embed_dim=hidden_size//4,out_embed_dim=hidden_size,num_heads=self.unet_num_heads)
+                     self.vit_connection_blocks[str(idx_x-1)]=MultiCrossAttention(embed_dim=hidden_size//4,out_embed_dim=hidden_size,num_heads=self.unet_num_heads)
 
         self.middle_blocks=[
             ResBlock(self.unet_hidden_sizes[-1],norm=self.norm),
@@ -293,7 +293,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
                   if ((len(self.decoder_blocks)-1)-idx) in list(self.vit_connection_blocks.keys()):
-                        vitcross_block=self.vit_connection_blocks[(len(self.decoder_blocks)-1)-idx]
+                        vitcross_block=self.vit_connection_blocks[str((len(self.decoder_blocks)-1)-idx)]
                         x,skip=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
                   else:
                         skip=skips[(len(self.decoder_blocks)-1)-idx]

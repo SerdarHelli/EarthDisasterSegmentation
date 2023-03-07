@@ -290,3 +290,12 @@ class MultiCrossAttention(tf.keras.layers.Layer):
         x=self.x_out(x)
         x=tf.nn.relu(self.norm_out(x))
         return x,skill
+    
+    def get_config(self):
+        config = super().get_config().copy()
+        config.update({'num_heads': self.num_heads,'embed_dim': self.embed_dim,'out_embed_dim': self.out_embed_dim})
+        return config
+    
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
