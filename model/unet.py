@@ -318,8 +318,9 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
 
         SE ResNeXt is a variant of a ResNext that employs squeeze-and-excitation blocks to enable the network to perform dynamic channel-wise feature recalibration.
         Paper Ref:
-        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
-        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
+        For SE Original paper: 'Squeeze-and-Excitation Networks,' https://arxiv.org/abs/1709.01507.
+        FOR ResNeXt Original paper : Xie, Saining, et al. "Aggregated residual transformations for deep neural networks." Proceedings of the IEEE conference on computer vision and pattern recognition. 2017.
+
 
     """
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
