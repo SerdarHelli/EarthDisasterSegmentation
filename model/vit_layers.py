@@ -157,8 +157,8 @@ class VIT(tf.keras.layers.Layer):
 
 
 class MultiHeadCrossAttention(tf.keras.layers.Layer):
-    def __init__(self, embed_dim: int, num_heads: int) -> None:
-        super(MultiHeadCrossAttention, self).__init__()
+    def __init__(self, embed_dim: int, num_heads: int,**kwargs) :
+        super(MultiHeadCrossAttention, self).__init__(**kwargs)
         self.embed_dim=embed_dim
         self.num_heads=num_heads
 
@@ -218,8 +218,8 @@ class MultiHeadCrossAttention(tf.keras.layers.Layer):
 
 
 class MultiHeadSelfAttention(tf.keras.layers.Layer):
-    def __init__(self, embed_dim: int, num_heads: int) -> None:
-        super(MultiHeadSelfAttention, self).__init__()
+    def __init__(self, embed_dim: int, num_heads: int,**kwargs) :
+        super(MultiHeadSelfAttention, self).__init__(**kwargs)
         self.embed_dim=embed_dim
         self.mha = tf.keras.layers.MultiHeadAttention(key_dim=embed_dim, num_heads=num_heads)
 
@@ -232,8 +232,8 @@ class MultiHeadSelfAttention(tf.keras.layers.Layer):
         return x
 
 class PositionalEncoding(tf.keras.layers.Layer):
-    def __init__(self) -> None:
-        super(PositionalEncoding, self).__init__()
+    def __init__(self,**kwargs) :
+        super(PositionalEncoding, self).__init__(**kwargs)
 
     def call(self, x) :
         shape= tf.shape(x)
@@ -262,16 +262,14 @@ class PositionalEncoding(tf.keras.layers.Layer):
         return pos_encoding
 
 
-class VITCross(tf.keras.layers.Layer):
+class MultiCrossAttention(tf.keras.layers.Layer):
     def __init__(self,embed_dim,out_embed_dim,num_heads,**kwargs):
-        super(VITCross, self).__init__(**kwargs)
+        super(MultiCrossAttention, self).__init__(**kwargs)
         self.num_heads=num_heads
         self.embed_dim=embed_dim
         self.out_embed_dim=out_embed_dim
 
     def build(self,input_shape):
-
-
         self.mhca=MultiHeadCrossAttention(embed_dim=self.embed_dim,num_heads=self.num_heads)
         self.positional_encoding_input=PositionalEncoding()
         self.positional_encoding_context=PositionalEncoding()
