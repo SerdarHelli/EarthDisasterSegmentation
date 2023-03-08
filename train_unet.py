@@ -6,6 +6,10 @@ from model.callbacks import *
 import os
 from data.dataloader import UnetDataGen,EvalUnetGen
 
+tf.keras.utils.set_random_seed(1234)
+
+tf.config.experimental.enable_op_determinism()
+
 parser = argparse.ArgumentParser(prog="Train")
 parser.add_argument("--config_path", type=str, required=True,help="Config Path")
 
@@ -20,7 +24,7 @@ test_path=conf.test_path
 checkpoint_path=conf.checkpoint_path
 img_size=conf.input_shape[1]
 
-train_ds=UnetDataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=True,augmentation=True)
+train_ds=UnetDataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=False,augmentation=True)
 eval_Data=EvalUnetGen(test_path)
 
 model=UNetModel(conf,checkpoint_path=checkpoint_path)

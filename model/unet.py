@@ -495,8 +495,8 @@ class UNetModel(tf.keras.Model):
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
         self.network=self.build_unet()
-        self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
-        self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="DiceLoss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="CrossEntropyLoss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.f1_score_tracker=tf.keras.metrics.Mean(name="f1")
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
@@ -521,8 +521,8 @@ class UNetModel(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
-        self.loss_1=GeneralizedDice()
-        self.loss_2=FocalTverskyLoss()
+        self.loss_1=DiceLoss()
+        self.loss_2=tf.keras.losses.BinaryCrossentropy()
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=0.25)
         
     @property
