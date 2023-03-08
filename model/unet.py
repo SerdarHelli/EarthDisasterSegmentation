@@ -1,6 +1,6 @@
 
 import tensorflow as tf
-import tensorflow as tf
+import tensorflow_addons as tfa
 import numpy as np
 import tensorflow.keras.backend as K
 from model.vit_layers import *
@@ -499,7 +499,7 @@ class UNetModel(tf.keras.Model):
         self.loss_1_tracker = tf.keras.metrics.Mean(name="GenDice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="FocalTversky_loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
-
+        self.f1_score_tracker=tf.keras.metrics.Mean(name="f1")
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -524,31 +524,35 @@ class UNetModel(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=GeneralizedDice()
         self.loss_2=FocalTverskyLoss()
-
-
+        self.iou_score=tf.keras.metrics.IoU(num_classes=2, target_class_ids=[1])
+        
     @property
     def metrics(self):
         return [
             self.loss_1_tracker,
             self.loss_2_tracker,
             self.iou_score_tracker,
+            self.f1_score_tracker,
         ]
-    
-
-    def iou_score(self,y_true, y_pred, smooth=1):
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
-        iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
-        return iou
-    
-    def dice_score(self,y_true, y_pred, smooth=1):
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true, axis=[1,2,3]) + K.sum(y_pred, axis=[1,2,3])
-        dice= K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
-        return dice
-
-
         
+    def recall_m(self,y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision_m(self,y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    def f1_score(self,y_true, y_pred):
+        precision = self.precision_m(y_true, y_pred)
+        recall = self.recall_m(y_true, y_pred)
+        return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
+    
 
 
     def load(self,usage="train",return_epoch_number=True):
@@ -614,11 +618,14 @@ class UNetModel(tf.keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
         iou_score=self.iou_score(local_map,y_local)
+        f1_score=self.f1_score(local_map,y_local)
 
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
+        self.f1_score_tracker.update_state(f1_score)
+
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -632,9 +639,11 @@ class UNetModel(tf.keras.Model):
         loss_2=self.loss_2(local_map,y_local)
         loss_1=self.loss_1(local_map,y_local)
         iou_score=self.iou_score(local_map,y_local)
+        f1_score=self.f1_score(local_map,y_local)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
+        self.f1_score_tracker.update_state(f1_score)
         results = {m.name: m.result() for m in self.metrics}
         return results
