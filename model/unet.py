@@ -1,6 +1,5 @@
 
 import tensorflow as tf
-import tensorflow_addons as tfa
 import numpy as np
 import tensorflow.keras.backend as K
 from model.vit_layers import *
@@ -524,7 +523,7 @@ class UNetModel(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=GeneralizedDice()
         self.loss_2=FocalTverskyLoss()
-        self.iou_score=tf.keras.metrics.IoU(num_classes=2, target_class_ids=[1])
+        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=0.25)
         
     @property
     def metrics(self):
