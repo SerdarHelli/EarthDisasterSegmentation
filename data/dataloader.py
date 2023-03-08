@@ -25,7 +25,7 @@ class DataGen(tf.keras.utils.Sequence):
 
         self.transform = A.Compose([
               A.CropNonEmptyMaskIfExists (width=img_size, height=img_size,always_apply=True),
-              A.RandomRotate90(p=0.6),
+              A.RandomRotate90(p=0.2),
               A.Flip(p=0.6),
 
               A.OneOf([
