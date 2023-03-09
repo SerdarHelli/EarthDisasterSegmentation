@@ -1,6 +1,6 @@
-lr: 0.00015
-weight_decay: 1.0e-06
-use_ema: true
+lr: 0.001
+weight_decay: 1.0e-03
+use_ema: False
 ema_momentum: 0.9999
 input_shape:
 - 512
@@ -14,7 +14,7 @@ train_path:
 test_path:
 - "/content/hold"
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_2"
-step_warmup: 3500
+step_warmup: 2000
 unet :
   target: model.unet.UNet_AutoEncoder
   params:
@@ -31,4 +31,9 @@ unet :
       - 2
       - 2
       - 2
+    loss_weights:
+      - 0.5
+      - 1
     drop_path_rate: 0.1
+    threshold_metric: 0.25
+      

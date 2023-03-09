@@ -156,7 +156,38 @@ class ConvBlock(tf.keras.layers.Layer):
         x = self.conv_2(tf.nn.relu(x))
         return x
     
+class ConvSEBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
 
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.norm1 = getNorm(self.norm_str)
+        self.norm2 = getNorm(self.norm_str)
+        self.act1=tf.keras.activations.relu()
+        self.act2=tf.keras.activations.relu()
+        self.se= SqueezeAndExcite2D(filters=self.filters)
+        self.conv_3 = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.norm3 = getNorm(self.norm_str)
+        self.act3=tf.keras.activations.relu()
+
+    def call(self, input_tensor: tf.Tensor):
+        x = self.norm1(input_tensor)
+        x=self.act1(x)
+        x = self.conv_1(x)
+        x = self.norm2(x)
+        x=self.act2(x)
+        x = self.conv_2(x)
+        x=self.norm3(x)
+        x=self.act3(x)
+        x=self.se(x)
+        x=self.conv3(x)
+        return x
+    
 class ResBlock(tf.keras.layers.Layer):
     def __init__(self, filters,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
@@ -199,9 +230,13 @@ class UpSample(tf.keras.layers.Layer):
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
+        self.act=tf.keras.activations.relu()
+
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)
-        return self.norm1(x)
+        x=self.norm1(x)
+        x=self.act(x)
+        return x
 
 class DownSample(tf.keras.layers.Layer):
     def __init__(self, filters,norm="layernorm", **kwargs):
@@ -211,10 +246,13 @@ class DownSample(tf.keras.layers.Layer):
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, kernel_size=2, strides=2,padding="same", kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
+        self.act=tf.keras.activations.relu()
+
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)
-        
-        return self.norm1(x)
+        x=self.norm1(x)
+        x=self.act(x)
+        return x
 
 class ConvNeXtBlock(tf.keras.layers.Layer):
     r""" ConvNeXt Block. There are two equivalent implementations:
@@ -278,28 +316,3 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         x = skip + self.drop_path(x)
         return x
     
-
-class SPADE(tf.keras.layers.Layer):
-    def __init__(self, filters, epsilon=1e-5, **kwargs):
-    
-        super().__init__(**kwargs)
-        self.epsilon = epsilon
-        self.filters=filters
-        self.conv = tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu")
-        self.conv_gamma = tf.keras.layers.Conv2D(filters, 3, padding="same")
-        self.conv_beta = tf.keras.layers.Conv2D(filters, 3, padding="same")
-
-    def build(self, input_shape):
-
-        self.resize_shape = input_shape[1:3]
-
-    def call(self, input_tensor, raw_mask):
-        mask = tf.image.resize(raw_mask, (self.resize_shape), method="nearest")
-        x = self.conv(mask)
-        gamma = self.conv_gamma(x)
-        beta = self.conv_beta(x)
-        mean, var = tf.nn.moments(input_tensor, axes=(0, 1, 2), keepdims=True)
-        std = tf.sqrt(var + self.epsilon)
-        normalized = (input_tensor - mean) / std
-        output = ((gamma) * normalized) + beta
-        return output

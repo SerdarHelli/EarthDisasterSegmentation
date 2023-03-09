@@ -156,7 +156,7 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
-                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
 
        
@@ -204,7 +204,100 @@ class UTransNet_AutoEncoder(tf.keras.layers.Layer):
         x=self.final_layer(x)
         x=self.final_activation(x)
         return x,hidden_states
+    
 
+class USETransNet_AutoEncoder(tf.keras.layers.Layer):
+
+    """
+        U-Net AutoEncoder:
+
+        All blocks are resblock. 
+        
+        Between encoder and decoder , there is vit block.
+        
+        Paper Ref:
+        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
+        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
+
+    """
+    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.unet_num_transformer=unet_num_transformer
+        self.unet_num_heads=unet_num_heads
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
+        self.norm="batchnorm"
+
+    def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
+
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ConvSEBlock(hidden_size,norm=self.norm)
+                    self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+
+       
+
+        self.middle_blocks=[ConvSEBlock(self.unet_hidden_sizes[-1],norm=self.norm),
+                            ConvSEBlock(self.unet_hidden_sizes[-1],norm=self.norm)
+        ]
+
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.unet_num_res_blocks):
+                    x = ConvSEBlock(hidden_size,norm=self.norm)
+                    self.decoder_blocks.append(x)
+                
+                if i!=0:
+
+                   x = UpSample(hidden_size,norm=self.norm)
+                   self.decoder_blocks.append(x)
+
+        self.norm = getNorm(self.norm)
+        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
+
+    def call(self, input_tensor: tf.Tensor):
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        hidden_states=[]
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                hidden_states.append(x)
+            x=block(x)
+
+            skips.append(x)
+
+        x=self.middle_block(x)
+        hidden_states.append(x)
+
+        for idx,block in enumerate(self.decoder_blocks):
+
+       
+            x=block(x)
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+
+        x=tf.nn.relu(self.norm(x))
+        x=self.final_layer(x)
+        x=self.final_activation(x)
+        return x,hidden_states
+    
 class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
     """
         first,second,third concatanetation has no cross attention , and also cross attention embedding dimesion reduced 4x .bec of computer power
@@ -243,7 +336,7 @@ class UNetTransformer_AutoEncoder(tf.keras.layers.Layer):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
-                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
                   if hidden_size in self.unet_hidden_sizes[3:]:
                      self.vit_connection_blocks[str(idx_x-1)]=MultiCrossAttention(embed_dim=hidden_size//4,out_embed_dim=hidden_size,num_heads=self.unet_num_heads)
@@ -353,7 +446,7 @@ class USEResNextNet_AutoEncoder(tf.keras.layers.Layer):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
-                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
        
 
@@ -432,7 +525,7 @@ class UNet_AutoEncoder(tf.keras.layers.Layer):
                 if hidden_size != self.unet_hidden_sizes[-1]:
                   self.concat_idx.append(idx_x-1)
                   idx_x=idx_x+1
-                  x = tf.keras.layers.AveragePooling2D(pool_size=(2, 2))
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
 
        
@@ -506,7 +599,8 @@ class UNetModel(tf.keras.Model):
             
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
-
+        self.threshold_metric=config.threshold_metric
+        self.loss_weights=config.loss_weights
   
 
 
@@ -523,7 +617,7 @@ class UNetModel(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=DiceLoss()
         self.loss_2=tf.keras.losses.BinaryCrossentropy()
-        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=0.25)
+        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
         
     @property
     def metrics(self):
@@ -541,6 +635,7 @@ class UNetModel(tf.keras.Model):
         return recall
 
     def precision_m(self,y_true, y_pred):
+        y_pred = tf.cast(y_pred >= (self.threshold_metric), tf.float32)
         true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
         predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
         precision = true_positives / (predicted_positives + K.epsilon())
@@ -608,8 +703,8 @@ class UNetModel(tf.keras.Model):
 
             y_local = self.network(x, training=True)
 
-            loss_1=self.loss_1(local_map,y_local)
-            loss_2=self.loss_2(local_map,y_local)
+            loss_1=self.loss_1(local_map,y_local)*self.loss_weights[0]
+            loss_2=self.loss_2(local_map,y_local)*self.loss_weights[1]
 
             loss=loss_1+loss_2
 
@@ -635,8 +730,11 @@ class UNetModel(tf.keras.Model):
 
         y_local = self.network(x, training=False)
 
-        loss_2=self.loss_2(local_map,y_local)
-        loss_1=self.loss_1(local_map,y_local)
+       
+        loss_1=self.loss_1(local_map,y_local)*self.loss_weights[0]
+        loss_2=self.loss_2(local_map,y_local)*self.loss_weights[1]
+
+
         iou_score=self.iou_score(local_map,y_local)
         f1_score=self.f1_score(local_map,y_local)
 
