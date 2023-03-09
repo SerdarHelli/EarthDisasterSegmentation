@@ -9,7 +9,7 @@ input_shape:
 - 3
 loss_weights:
   - 0.5
-  - 2
+  - 5
 threshold_metric: 0.25
 gradient_clip_value: 1
 batch_size: 4
