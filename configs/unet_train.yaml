@@ -19,7 +19,7 @@ train_path:
 test_path:
 - "/content/hold"
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_2"
-step_warmup: 2000
+step_warmup: 4000
 unet :
   target: model.unet.TransUNet_AutoEncoder
   params:
