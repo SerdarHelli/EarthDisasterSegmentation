@@ -2,13 +2,18 @@ lr: 0.001
 weight_decay: 1.0e-03
 use_ema: False
 ema_momentum: 0.9999
+seed: 1234
 input_shape:
 - 512
 - 512
 - 3
+loss_weights:
+  - 0.5
+  - 2
+threshold_metric: 0.25
 gradient_clip_value: 1
 batch_size: 4
-epochs: 71
+epochs: 50
 train_path: 
 - "/content/train"
 test_path:
@@ -16,7 +21,7 @@ test_path:
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_2"
 step_warmup: 2000
 unet :
-  target: model.unet.UNet_AutoEncoder
+  target: model.unet.TransUNet_AutoEncoder
   params:
     hidden_sizes:
       - 64
@@ -24,16 +29,12 @@ unet :
       - 320
       - 512
     unet_num_res_blocks: 2
-    unet_num_heads: 12
-    unet_num_transformer: 12
+    unet_num_heads: 8
+    unet_num_transformer: 4
     depths:
       - 2
       - 2
       - 2
       - 2
-    loss_weights:
-      - 0.5
-      - 1
     drop_path_rate: 0.1
-    threshold_metric: 0.25
       

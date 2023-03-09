@@ -6,9 +6,7 @@ from model.callbacks import *
 import os
 from data.dataloader import UnetDataGen,EvalUnetGen
 
-tf.keras.utils.set_random_seed(1234)
 
-tf.config.experimental.enable_op_determinism()
 
 parser = argparse.ArgumentParser(prog="Train")
 parser.add_argument("--config_path", type=str, required=True,help="Config Path")
@@ -16,6 +14,7 @@ parser.add_argument("--config_path", type=str, required=True,help="Config Path")
 args = vars(parser.parse_args())
 
 conf = OmegaConf.load(args["config_path"])
+tf.keras.utils.set_random_seed(conf.seed)
 
 batch_size=conf.batch_size
 epochs=conf.epochs

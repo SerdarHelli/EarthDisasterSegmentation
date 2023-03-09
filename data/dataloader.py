@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import cv2
 from data.utils import *
-
+import random
 
 class DataGen(tf.keras.utils.Sequence):
     
@@ -59,6 +59,10 @@ class DataGen(tf.keras.utils.Sequence):
 
         if self.augmentation==True:
             transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
+            if random.random() > 0.5:
+                transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
+            else:
+                transformed = self.transform_no_aug(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
 
         else:
             transformed = self.transform_no_aug(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
@@ -156,8 +160,10 @@ class UnetDataGen(tf.keras.utils.Sequence):
           mask=(mask>127)*1
 
         if self.augmentation==True:
-            transformed = self.transform(image=image,mask=mask)
-
+            if random.random() > 0.5:
+                transformed = self.transform(image=image,mask=mask)
+            else:
+                transformed = self.transform_no_aug(image=image,mask=mask)
         else:
             transformed = self.transform_no_aug(image=image,mask=mask)
 

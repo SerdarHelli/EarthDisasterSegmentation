@@ -74,12 +74,12 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
 
 
 class SEResBlock(tf.keras.layers.Layer):
-    def __init__(self, filters,cardinality,norm="batchnorm", **kwargs):
+    def __init__(self, filters,cardinality,drop_path_rate=0,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
         self.norm_str=norm
         self.cardinality=cardinality
-
+        self.drop_path_rate=drop_path_rate
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
@@ -93,6 +93,7 @@ class SEResBlock(tf.keras.layers.Layer):
         self.norm1 = getNorm(self.norm_str)
         self.norm2 = getNorm(self.norm_str)
         self.norm3 = getNorm(self.norm_str)
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
 
         self.se= SqueezeAndExcite2D(filters=self.filters)
         if self.filters != input_filter:
@@ -129,6 +130,8 @@ class SEResBlock(tf.keras.layers.Layer):
         )
         
         output = skip + x
+        output=self.droput(output)
+
         return output
 
 
@@ -136,10 +139,11 @@ class SEResBlock(tf.keras.layers.Layer):
 
 
 class ConvBlock(tf.keras.layers.Layer):
-    def __init__(self, filters,norm="batchnorm", **kwargs):
+    def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
         self.norm_str=norm
+        self.drop_path_rate=drop_path_rate
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
@@ -147,6 +151,7 @@ class ConvBlock(tf.keras.layers.Layer):
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
         self.norm2 = getNorm(self.norm_str)
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
 
 
     def call(self, input_tensor: tf.Tensor):
@@ -154,13 +159,15 @@ class ConvBlock(tf.keras.layers.Layer):
         x = self.conv_1(tf.nn.relu(x))
         x = self.norm2(x)
         x = self.conv_2(tf.nn.relu(x))
+        x=self.droput(x)
         return x
     
 class ConvSEBlock(tf.keras.layers.Layer):
-    def __init__(self, filters,norm="batchnorm", **kwargs):
+    def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
         self.norm_str=norm
+        self.drop_path_rate=drop_path_rate
 
     def build(self, input_shape):
         input_filter = input_shape[-1]
@@ -168,12 +175,13 @@ class ConvSEBlock(tf.keras.layers.Layer):
         self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
         self.norm2 = getNorm(self.norm_str)
-        self.act1=tf.keras.activations.relu()
-        self.act2=tf.keras.activations.relu()
+        self.act1=tf.keras.layers.Activation("relu")
+        self.act2=tf.keras.layers.Activation("relu")
         self.se= SqueezeAndExcite2D(filters=self.filters)
         self.conv_3 = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
         self.norm3 = getNorm(self.norm_str)
-        self.act3=tf.keras.activations.relu()
+        self.act3=tf.keras.layers.Activation("relu")
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
 
     def call(self, input_tensor: tf.Tensor):
         x = self.norm1(input_tensor)
@@ -185,15 +193,16 @@ class ConvSEBlock(tf.keras.layers.Layer):
         x=self.norm3(x)
         x=self.act3(x)
         x=self.se(x)
-        x=self.conv3(x)
+        x=self.conv_3(x)
+        x=self.droput(x)
         return x
     
 class ResBlock(tf.keras.layers.Layer):
-    def __init__(self, filters,norm="batchnorm", **kwargs):
+    def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
         self.norm_str=norm
-
+        self.drop_path_rate=drop_path_rate
     def build(self, input_shape):
         input_filter = input_shape[-1]
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
@@ -201,6 +210,7 @@ class ResBlock(tf.keras.layers.Layer):
         self.learned_skip = False
         self.norm1 = getNorm(self.norm_str)
         self.norm2 = getNorm(self.norm_str)
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
 
         if self.filters != input_filter:
             self.learned_skip = True
@@ -219,7 +229,7 @@ class ResBlock(tf.keras.layers.Layer):
             else input_tensor
         )
         output = skip + x
-
+        output=self.droput(output)
         return output
     
 class UpSample(tf.keras.layers.Layer):
@@ -230,7 +240,7 @@ class UpSample(tf.keras.layers.Layer):
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
-        self.act=tf.keras.activations.relu()
+        self.act=tf.keras.layers.Activation("relu")
 
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)
@@ -246,7 +256,7 @@ class DownSample(tf.keras.layers.Layer):
     def build(self, input_shape):
         self.conv_1 = tf.keras.layers.Conv2D(self.filters, kernel_size=2, strides=2,padding="same", kernel_initializer = 'he_normal')
         self.norm1 = getNorm(self.norm_str)
-        self.act=tf.keras.activations.relu()
+        self.act=tf.keras.layers.Activation("relu")
 
     def call(self, input_tensor: tf.Tensor):
         x = self.conv_1(input_tensor)

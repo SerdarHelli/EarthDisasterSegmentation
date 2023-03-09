@@ -28,9 +28,17 @@ class USegFormer(tf.keras.Model):
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_value=0.1
+        
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="GeneralizedFocalTversky_Loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
+        self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
+        self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
+        self.f1_minordamage_tracker  = tf.keras.metrics.Mean(name="f1_minordamage")
+        self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
+        self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
+        self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
+
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
@@ -67,6 +75,7 @@ class USegFormer(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
         self.loss_2=GeneralizedFocalTverskyLoss()
+        self.iou_score=tf.keras.metrics.OneHotIoU(num_classes=5, target_class_id=[0,1,2,3,4])
 
 
     @property
@@ -75,30 +84,43 @@ class USegFormer(tf.keras.Model):
             self.loss_1_tracker,
             self.loss_2_tracker,
             self.iou_score_tracker,
+            self.f1_total_tracker,
+            self.f1_nodamage_tracker,    
+            self.f1_minordamage_tracker ,
+            self.f1_majordamage_tracker ,
+            self.f1_destroyed_tracker   ,
+            self.f1_unclassified_tracker,
+
         ]
     
-    def make_threshold(self,multi_label,):
-        array=(multi_label>float(self.threshold_value))*1
-        return np.float32(np.expand_dims(array,axis=-1))
+    def recall_m(self,y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
 
-    def iou_score(self,y_true, y_pred, smooth=1):
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2,3])
-        union = K.sum(y_true,[1,2,3])+K.sum(y_pred,[1,2,3])-intersection
-        iou = K.mean((intersection + smooth) / (union + smooth), axis=0)
-        return iou
+    def precision_m(self,y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    def f1_score(self,y_true, y_pred):
+        y_pred = tf.cast(y_pred >= (self.threshold_metric), tf.float32)
+        precision = self.precision_m(y_true, y_pred)
+        recall = self.recall_m(y_true, y_pred)
+        return 2*((precision*recall)/(precision+recall+K.epsilon()))
+
     
-    def dice_classes_score(self,y_true, y_pred, smooth=1):
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2])
-        union = K.sum(y_true, axis=[1,2]) + K.sum(y_pred, axis=[1,2])
-        dice= K.mean( (2. * intersection + smooth) / (union + smooth), axis=0)
-        dices={
-            "nodamage":dice[0],
-            "minordamage":dice[1],
-            "majordamage":dice[2],
-            "destroyed":dice[3],
-            "unclassified":dice[4],
-        }
-        return dices
+    def dice_classes_score(self,y_true, y_pred):
+        dices={}
+        dices["nodamage"]=self.f1_score(y_true[:,:,:,0],y_pred[:,:,:,0])
+        dices["minordamage"]=self.f1_score(y_true[:,:,:,1],y_pred[:,:,:,1])
+        dices["majordamage"]=self.f1_score(y_true[:,:,:,2],y_pred[:,:,:,2])
+        dices["destroyed"]=self.f1_score(y_true[:,:,:,3],y_pred[:,:,:,3])
+        dices["unclassified"]=self.f1_score(y_true[:,:,:,4],y_pred[:,:,:,4])
+        total_dice=(dices["unclassified"]+  dices["destroyed"]+dices["majordamage"]+dices["minordamage"]+dices["nodamage"])/5
+        return dices,total_dice
 
 
 
@@ -175,6 +197,15 @@ class USegFormer(tf.keras.Model):
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
+        dices,total_dice=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        self.f1_total_tracker.update_state(total_dice)   
+        self.f1_nodamage_tracker.update_state(dices["nodamage"])    
+        self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
+        self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
+        self.f1_destroyed_tracker.update_state(dices["destroyed"])   
+        self.f1_unclassified_tracker.update_state(dices["unclassified"])
+
+
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -193,14 +224,13 @@ class USegFormer(tf.keras.Model):
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
 
         iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-        classes = list(dices.keys())
-        tf.summary.scalar(classes[0], data=dices[0], step=self.checkpoint.step)
-        tf.summary.scalar(classes[1], data=dices[1], step=self.checkpoint.step)
-        tf.summary.scalar(classes[2], data=dices[2], step=self.checkpoint.step)
-        tf.summary.scalar(classes[3], data=dices[3], step=self.checkpoint.step)
-        tf.summary.scalar(classes[4], data=dices[4], step=self.checkpoint.step)
-
+        dices,total_dice=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        self.f1_total_tracker.update_state(total_dice)   
+        self.f1_nodamage_tracker.update_state(dices["nodamage"])    
+        self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
+        self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
+        self.f1_destroyed_tracker.update_state(dices["destroyed"])   
+        self.f1_unclassified_tracker.update_state(dices["unclassified"])
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)

@@ -48,6 +48,7 @@ use_return_dict: true
 drop_path_rate: 0.1
 layer_norm_eps: 1.0e-06
 reshape_last_stage: true
+seed: 1234
 input_shape:
 - 512
 - 512
