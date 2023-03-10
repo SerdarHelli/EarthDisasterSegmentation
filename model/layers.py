@@ -136,7 +136,32 @@ class SEResBlock(tf.keras.layers.Layer):
 
 
 
+class AttentionGate(tf.keras.layers.Layer):
+    def __init__(self, filters,**kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
 
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.upsample = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation="bilinear")
+        self.phi_g = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.theta_att = tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.psi_f = tf.keras.layers.Conv2D(1, 1, padding="same", kernel_initializer = 'he_normal')
+        self.f=tf.keras.layers.Activation("relu")
+        self.coef_att=tf.keras.layers.Activation("sigmoid")
+
+        #skip input_tensor gated_decoder x-1
+    def call(self, input_tensor: tf.Tensor,gated_tensor:tf.Tensor):
+        gated_tensor=self.upsample(gated_tensor)
+        theta_att = self.theta_att(input_tensor)
+        phi_g = self.phi_g(gated_tensor)
+        query=theta_att+phi_g
+        f=self.f(query)
+        psi_f = self.psi_f(f)
+        coef_att = self.coef_att(psi_f)
+        X_att=coef_att*input_tensor
+        return X_att
+    
 
 class ConvBlock(tf.keras.layers.Layer):
     def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
