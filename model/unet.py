@@ -232,7 +232,7 @@ class UNet_Attention_AutoEncoder(tf.keras.layers.Layer):
         self.decoder_blocks=[]
         self.hidden_states_idx=[]
         idx_x=0
-        self.vit_connection_blocks={}
+        self.attn_connection_blocks={}
 
 
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
@@ -246,8 +246,8 @@ class UNet_Attention_AutoEncoder(tf.keras.layers.Layer):
                   idx_x=idx_x+1
                   x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
-                  if hidden_size in self.unet_hidden_sizes[3:]:
-                     self.vit_connection_blocks[str(idx_x-1)]=AttentionGate(embed_dim=hidden_size//2)
+                 # if hidden_size in self.unet_hidden_sizes[3:]:
+                  self.attn_connection_blocks[str(idx_x-1)]=AttentionGate(filters=hidden_size//2)
 
         self.middle_blocks=[
             ConvBlock(self.unet_hidden_sizes[-1],norm=self.norm,drop_path_rate=self.drop_path_rate),
@@ -290,9 +290,9 @@ class UNet_Attention_AutoEncoder(tf.keras.layers.Layer):
        
             x=block(x)
             if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
-                  if ((len(self.decoder_blocks)-1)-idx) in list(self.vit_connection_blocks.keys()):
-                        vitcross_block=self.vit_connection_blocks[str((len(self.decoder_blocks)-1)-idx)]
-                        skip=vitcross_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  if ((len(self.decoder_blocks)-1)-idx) in list(self.attn_connection_blocks.keys()):
+                        attn_block=self.attn_connection_blocks[str((len(self.decoder_blocks)-1)-idx)]
+                        skip=attn_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
                   else:
                         skip=skips[(len(self.decoder_blocks)-1)-idx]
                   x = tf.concat([x, skip], axis=-1)
@@ -304,7 +304,105 @@ class UNet_Attention_AutoEncoder(tf.keras.layers.Layer):
         x=self.final_activation(x)
         return x,hidden_states
     
-        
+class UNet_SE_AutoEncoder(tf.keras.layers.Layer):
+    """
+        USE-Net: incorporating Squeeze-and-Excitation blocks
+        into U-Net for prostate zonal segmentation
+        of multi-institutional MRI datasets
+        ref :https://arxiv.org/pdf/1904.08254.pdf
+    """
+    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.unet_num_transformer=unet_num_transformer
+        self.unet_num_heads=unet_num_heads
+        self.unet_hidden_sizes=[int(x) for x in hidden_sizes]
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0])
+        self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
+        self.norm="batchnorm"
+        self.drop_path_rate=drop_path_rate
+    def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
+
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        self.se_connection_blocks={}
+
+
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ConvBlock(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
+                    self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+                 # if hidden_size in self.unet_hidden_sizes[3:]:
+                  self.se_connection_blocks[str(idx_x-1)]=USENETBlock(filters=hidden_size//2)
+
+        self.middle_blocks=[
+            ConvBlock(self.unet_hidden_sizes[-1],norm=self.norm,drop_path_rate=self.drop_path_rate),
+            ConvBlock(self.unet_hidden_sizes[-1],norm=self.norm,drop_path_rate=self.drop_path_rate),
+        ]
+
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.unet_num_res_blocks):
+                    x = ConvBlock(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
+                    self.decoder_blocks.append(x)
+                
+                if i!=0:
+
+                   x = UpSample(hidden_size,norm=self.norm)
+                   self.decoder_blocks.append(x)
+
+        self.norm = getNorm(self.norm)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
+
+
+
+    def call(self, input_tensor: tf.Tensor):
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        hidden_states=[]
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                hidden_states.append(x)
+            x=block(x)
+
+            skips.append(x)
+
+        for idx,block in enumerate(self.middle_blocks):
+            x=block(x)
+
+        hidden_states.append(x)
+
+        for idx,block in enumerate(self.decoder_blocks):
+
+       
+            x=block(x)
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  if ((len(self.decoder_blocks)-1)-idx) in list(self.se_connection_blocks.keys()):
+                        se_block=self.se_connection_blocks[str((len(self.decoder_blocks)-1)-idx)]
+                        skip=se_block([x,skips[(len(self.decoder_blocks)-1)-idx]])
+                  else:
+                        skip=skips[(len(self.decoder_blocks)-1)-idx]
+                  x = tf.concat([x, skip], axis=-1)
+                      
+                  
+
+        x=tf.nn.relu(self.norm(x))
+        x=self.final_layer(x)
+        x=self.final_activation(x)
+        return x,hidden_states
+         
     
 class UNet_SEResNextBlock_AutoEncoder(tf.keras.layers.Layer):
 

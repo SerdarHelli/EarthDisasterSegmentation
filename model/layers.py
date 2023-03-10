@@ -150,8 +150,7 @@ class AttentionGate(tf.keras.layers.Layer):
         self.f=tf.keras.layers.Activation("relu")
         self.coef_att=tf.keras.layers.Activation("sigmoid")
 
-        #skip input_tensor gated_decoder x-1
-    def call(self, input_tensor: tf.Tensor,gated_tensor:tf.Tensor):
+    def call(self, gated_tensor: tf.Tensor,input_tensor:tf.Tensor):
         gated_tensor=self.upsample(gated_tensor)
         theta_att = self.theta_att(input_tensor)
         phi_g = self.phi_g(gated_tensor)
@@ -161,7 +160,25 @@ class AttentionGate(tf.keras.layers.Layer):
         coef_att = self.coef_att(psi_f)
         X_att=coef_att*input_tensor
         return X_att
-    
+
+class USENETBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,**kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.upsample = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation="bilinear")
+        self.se_skip=SqueezeAndExcite2D(self.filters)
+        self.se_decoder=SqueezeAndExcite2D(self.filters)
+
+    def call(self, input_tensor: tf.Tensor,skip_tensor:tf.Tensor):
+        x1=self.upsample(input_tensor)
+        x1=self.se_decoder(x1)
+        x2 = self.se_skip(skip_tensor)
+        x=x1+x2
+        return x
+     
 
 class ConvBlock(tf.keras.layers.Layer):
     def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
