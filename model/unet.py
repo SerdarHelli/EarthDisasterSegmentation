@@ -332,6 +332,7 @@ class UNet_SE_AutoEncoder(tf.keras.layers.Layer):
         self.hidden_states_idx=[]
         idx_x=0
         self.se_connection_blocks={}
+        self.final_se=SqueezeAndExcite2D(self.unet_hidden_sizes[0])
 
 
         for i,hidden_size in enumerate(self.unet_hidden_sizes):
@@ -362,6 +363,7 @@ class UNet_SE_AutoEncoder(tf.keras.layers.Layer):
 
                    x = UpSample(hidden_size,norm=self.norm)
                    self.decoder_blocks.append(x)
+
 
         self.norm = getNorm(self.norm)
         self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
@@ -399,6 +401,7 @@ class UNet_SE_AutoEncoder(tf.keras.layers.Layer):
                   
 
         x=tf.nn.relu(self.norm(x))
+        x=self.final_se(x)
         x=self.final_layer(x)
         x=self.final_activation(x)
         return x,hidden_states

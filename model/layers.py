@@ -74,6 +74,7 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
 
 
 class SEResBlock(tf.keras.layers.Layer):
+    #ResNext
     def __init__(self, filters,cardinality,drop_path_rate=0,norm="batchnorm", **kwargs):
         super().__init__(**kwargs)
         self.filters = filters
@@ -169,13 +170,19 @@ class USENETBlock(tf.keras.layers.Layer):
     def build(self, input_shape):
         input_filter = input_shape[-1]
         self.upsample = tf.keras.layers.UpSampling2D(size=(2, 2), data_format=None, interpolation="bilinear")
+        self.conv1=tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
+        self.conv2=tf.keras.layers.Conv2D(self.filters, 1, padding="same", kernel_initializer = 'he_normal')
         self.se_skip=SqueezeAndExcite2D(self.filters)
         self.se_decoder=SqueezeAndExcite2D(self.filters)
 
     def call(self, input_tensor: tf.Tensor,skip_tensor:tf.Tensor):
+        input_tensor=self.conv1(input_tensor)
+        skip_tensor=self.conv2(skip_tensor)
         x1=self.upsample(input_tensor)
         x1=self.se_decoder(x1)
+        x1=x1+input_tensor
         x2 = self.se_skip(skip_tensor)
+        x2=x2+skip_tensor
         x=x1+x2
         return x
      
