@@ -44,3 +44,13 @@ callbacks=[
 model.fit(train_ds,validation_data=eval_Data,epochs=epochs,initial_epoch=returned_epoch,callbacks=callbacks)
 
 
+results=model.evaluate(eval_Data,return_dict=True,)
+try:
+    log_txt_path=os.path.join(checkpoint_path,"results.txt")
+    with open(log_txt_path, 'w') as f:
+        for key in list(results.keys()):
+            string=key+" :  "+str(results[key])+"\n"
+            f.write(string)
+except Exception as error:
+    print(error)
+    pass    
