@@ -143,6 +143,23 @@ class GeneralizedFocalTverskyLoss(tf.keras.losses.Loss):
         FocalTversky = K.mean(K.pow((1 - Tversky), 1/self.gamma))
         return FocalTversky
 
+class WeightedCategoricalCrossentropy(tf.keras.losses.Loss):
+    def __init__(self,weights,from_logits=False,  **kwargs):
+        super().__init__(**kwargs)
+        self.weights=weights
+        self.epsilon=K.epsilon()
+        self.from_logits=from_logits
+        
+    def call(self,y_true, y_pred,) :
+        if self.from_logits:
+           y_pred = tf.keras.activations.softmax(y_pred, axis=-1)
+        	#y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        # clip to prevent NaN's and Inf's
+        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
+        # calc
+        loss = y_true * K.log(y_pred) * self.weights
+        loss = -K.sum(loss, -1)
+        return K.mean(loss)
 
 class GeneralizedDice(tf.keras.losses.Loss):
     def __init__(self, smooth=1,**kwargs):
