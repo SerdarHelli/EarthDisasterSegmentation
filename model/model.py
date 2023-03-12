@@ -25,7 +25,7 @@ class USegFormer(tf.keras.Model):
         self.load_unetmodel(unet_config,unet_checkpoint_path)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
-        self.threshold_value=config.threshold_metric
+        self.threshold_metric=config.threshold_metric
         
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="GeneralizedFocalTversky_Loss")
@@ -51,7 +51,9 @@ class USegFormer(tf.keras.Model):
         unet_model.compile()
         print("Loading Unet Model")
         unet_model.load()
-        self.unet_layer=unet_model.network.get_layer("u_net__auto_encoder" )
+        layer_names=[layer.name for layer in unet_model.network.layers]
+
+        self.unet_layer=unet_model.network.get_layer(layer_names[-1])
         self.unet_layer.trainable=False
         del unet_model
 
