@@ -4,7 +4,7 @@ import tensorflow as tf
 from model.model import USegFormer
 from model.callbacks import *
 import os
-from data.dataloader import UnetDataGen,EvalUnetGen
+from data.dataloader import DataGen,EvalGen
 
 
 
@@ -23,10 +23,10 @@ test_path=conf.test_path
 checkpoint_path=conf.checkpoint_path
 img_size=conf.input_shape[1]
 
-train_ds=UnetDataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=True,augmentation=True)
+train_ds=UnetDataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=False,augmentation=True)
 eval_Data=EvalUnetGen(test_path)
 
-model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_checkpoint_path=conf.unet_checkpoint_path)
+model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=conf.unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
 model.compile()
 returned_epoch=model.load()
 
@@ -36,9 +36,21 @@ with open(path_conf ,'w') as file:
 
 callbacks=[
     LearningRateStepScheduler(conf.lr,step_warmup=conf.step_warmup),
-    SaveCheckpoint(number_epoch=epochs, monitor="val_iou",per_epoch=None,initial_value_threshold=0.4,  mode="max",save_best=True),
+    SaveCheckpoint(number_epoch=epochs, monitor="val_f1",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
     tf.keras.callbacks.TensorBoard(log_dir=checkpoint_path+"/logs",write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True),
     tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_path,"log.csv"), separator=",", append=True)
 
 ]
 model.fit(train_ds,validation_data=eval_Data,epochs=epochs,initial_epoch=returned_epoch,callbacks=callbacks)
+
+
+results=model.evaluate(eval_Data,return_dict=True,)
+try:
+    log_txt_path=os.path.join(checkpoint_path,"results.txt")
+    with open(log_txt_path, 'w') as f:
+        for key in list(results.keys()):
+            string=key+" :  "+str(results[key])+"\n"
+            f.write(string)
+except Exception as error:
+    print(error)
+    pass    

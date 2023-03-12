@@ -2,8 +2,6 @@
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
 from model.unet import *
-from model.layers import SPADE
-import numpy as np
 import tensorflow.keras.backend as K
 from model.loss import *
 import os
@@ -12,7 +10,7 @@ import datetime
 
 
 class USegFormer(tf.keras.Model):
-    def __init__(self, config,checkpoint_path,unet_checkpoint_path,
+    def __init__(self, config,checkpoint_path,unet_config,unet_checkpoint_path,
                  special_checkpoint=None,
                  ):
         super(USegFormer,self).__init__()
@@ -24,10 +22,10 @@ class USegFormer(tf.keras.Model):
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
         self.unet_layer=None
-        self.load_unetmodel(config,unet_checkpoint_path)
+        self.load_unetmodel(unet_config,unet_checkpoint_path)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
-        self.threshold_value=0.1
+        self.threshold_value=config.threshold_metric
         
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="GeneralizedFocalTversky_Loss")
@@ -48,8 +46,8 @@ class USegFormer(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
     
-    def load_unetmodel(self,config,unet_checkpoint_path):
-        unet_model=UNetModel(config,checkpoint_path=unet_checkpoint_path)
+    def load_unetmodel(self,unet_config,unet_checkpoint_path):
+        unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
         unet_model.compile()
         print("Loading Unet Model")
         unet_model.load()
@@ -75,7 +73,7 @@ class USegFormer(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
         self.loss_2=GeneralizedFocalTverskyLoss()
-        self.iou_score=tf.keras.metrics.OneHotIoU(num_classes=5, target_class_id=[0,1,2,3,4])
+        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
 
     @property
@@ -93,34 +91,24 @@ class USegFormer(tf.keras.Model):
 
         ]
     
-    def recall_m(self,y_true, y_pred):
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-        recall = true_positives / (possible_positives + K.epsilon())
-        return recall
 
-    def precision_m(self,y_true, y_pred):
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-        precision = true_positives / (predicted_positives + K.epsilon())
-        return precision
-
-    def f1_score(self,y_true, y_pred):
-        y_pred = tf.cast(y_pred >= (self.threshold_metric), tf.float32)
-        precision = self.precision_m(y_true, y_pred)
-        recall = self.recall_m(y_true, y_pred)
-        return 2*((precision*recall)/(precision+recall+K.epsilon()))
 
     
     def dice_classes_score(self,y_true, y_pred):
         dices={}
-        dices["nodamage"]=self.f1_score(y_true[:,:,:,0],y_pred[:,:,:,0])
-        dices["minordamage"]=self.f1_score(y_true[:,:,:,1],y_pred[:,:,:,1])
-        dices["majordamage"]=self.f1_score(y_true[:,:,:,2],y_pred[:,:,:,2])
-        dices["destroyed"]=self.f1_score(y_true[:,:,:,3],y_pred[:,:,:,3])
-        dices["unclassified"]=self.f1_score(y_true[:,:,:,4],y_pred[:,:,:,4])
-        total_dice=(dices["unclassified"]+  dices["destroyed"]+dices["majordamage"]+dices["minordamage"]+dices["nodamage"])/5
-        return dices,total_dice
+        dices["nodamage"]=self.iou_score(y_true[:,:,:,0],y_pred[:,:,:,0])
+        dices["minordamage"]=self.iou_score(y_true[:,:,:,1],y_pred[:,:,:,1])
+        dices["majordamage"]=self.iou_score(y_true[:,:,:,2],y_pred[:,:,:,2])
+        dices["destroyed"]=self.iou_score(y_true[:,:,:,3],y_pred[:,:,:,3])
+        dices["unclassified"]=self.iou_score(y_true[:,:,:,4],y_pred[:,:,:,4])
+        dices["nodamage"]=(2*dices["nodamage"])/(1+dices["nodamage"])
+        dices["minordamage"]=(2*dices["minordamage"])/(1+dices["minordamage"])
+        dices["majordamage"]=(2*dices["majordamage"])/(1+dices["majordamage"])
+        dices["destroyed"]=(2*dices["destroyed"])/(1+dices["destroyed"])
+        dices["unclassified"]=(2*dices["unclassified"])/(1+dices["unclassified"])
+
+
+        return dices
 
 
 
@@ -192,12 +180,13 @@ class USegFormer(tf.keras.Model):
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
+        iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
+        total_dice=(2*iou_score)/(1+iou_score)
+        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
-        dices,total_dice=self.dice_classes_score(multilabel_map,y_multilabel_resized)
         self.f1_total_tracker.update_state(total_dice)   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
@@ -223,8 +212,10 @@ class USegFormer(tf.keras.Model):
         loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
 
-        iou_score=self.iou_score(multilabel_map,y_multilabel_resized)
-        dices,total_dice=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
+        total_dice=(2*iou_score)/(1+iou_score)
+        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+
         self.f1_total_tracker.update_state(total_dice)   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
