@@ -22,11 +22,11 @@ train_path=conf.train_path
 test_path=conf.test_path
 checkpoint_path=conf.checkpoint_path
 img_size=conf.input_shape[1]
-
+unet_config=OmegaConf.load(conf.unet_config_path)
 train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
 eval_Data=EvalGen(test_path)
 
-model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=conf.unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
+model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
 model.compile()
 returned_epoch=model.load()
 
@@ -36,7 +36,7 @@ with open(path_conf ,'w') as file:
 
 callbacks=[
     LearningRateStepScheduler(conf.lr,step_warmup=conf.step_warmup),
-    SaveCheckpoint(number_epoch=epochs, monitor="val_f1",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
+    SaveCheckpoint(number_epoch=epochs, monitor="val_f1_total",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
     tf.keras.callbacks.TensorBoard(log_dir=checkpoint_path+"/logs",write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True),
     tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_path,"log.csv"), separator=",", append=True)
 
