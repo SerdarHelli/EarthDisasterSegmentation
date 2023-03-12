@@ -74,7 +74,7 @@ class USegFormer(tf.keras.Model):
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
-        self.loss_2=tf.keras.losses.BinaryCrossentropy()
+        self.loss_2=tf.keras.losses.BinaryFocalCrossentropy(gamma=3)
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
 
@@ -98,18 +98,17 @@ class USegFormer(tf.keras.Model):
     
     def dice_classes_score(self,y_true, y_pred):
         dices={}
-        dices["nodamage"]=self.iou_score(y_true[:,:,:,0],y_pred[:,:,:,0])
-        dices["minordamage"]=self.iou_score(y_true[:,:,:,1],y_pred[:,:,:,1])
-        dices["majordamage"]=self.iou_score(y_true[:,:,:,2],y_pred[:,:,:,2])
-        dices["destroyed"]=self.iou_score(y_true[:,:,:,3],y_pred[:,:,:,3])
-        dices["unclassified"]=self.iou_score(y_true[:,:,:,4],y_pred[:,:,:,4])
-        dices["nodamage"]=(2*dices["nodamage"])/(1+dices["nodamage"])
-        dices["minordamage"]=(2*dices["minordamage"])/(1+dices["minordamage"])
-        dices["majordamage"]=(2*dices["majordamage"])/(1+dices["majordamage"])
-        dices["destroyed"]=(2*dices["destroyed"])/(1+dices["destroyed"])
-        dices["unclassified"]=(2*dices["unclassified"])/(1+dices["unclassified"])
+        d1=self.iou_score(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.iou_score(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.iou_score(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.iou_score(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.iou_score(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
-
+        dices["nodamage"]=(2*d1)/(1+d1)
+        dices["minordamage"]=(2*d2)/(1+d2)
+        dices["majordamage"]=(2*d3)/(1+d3)
+        dices["destroyed"]=(2*d4)/(1+d4)
+        dices["unclassified"]=(2*d5)/(1+d5)
         return dices
 
 
@@ -176,7 +175,7 @@ class USegFormer(tf.keras.Model):
 
 
             loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_2=self.loss_2(multilabel_map,y_multilabel_resized, sample_weight=[0.7, 0.3])*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -212,7 +211,7 @@ class USegFormer(tf.keras.Model):
 
         
         loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_2=self.loss_2(multilabel_map,y_multilabel_resized, sample_weight=[0.7, 0.3])*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
