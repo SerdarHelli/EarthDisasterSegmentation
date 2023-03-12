@@ -50,7 +50,7 @@ class USegFormer(tf.keras.Model):
         unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
         unet_model.compile()
         print("Loading Unet Model")
-        unet_model.load()
+        unet_model.load(usage="eval")
         layer_names=[layer.name for layer in unet_model.network.layers]
 
         self.unet_layer=unet_model.network.get_layer(layer_names[-1])
