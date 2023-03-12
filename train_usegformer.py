@@ -23,8 +23,8 @@ test_path=conf.test_path
 checkpoint_path=conf.checkpoint_path
 img_size=conf.input_shape[1]
 
-train_ds=UnetDataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=False,augmentation=True)
-eval_Data=EvalUnetGen(test_path)
+train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,dilation=False,augmentation=True)
+eval_Data=EvalGen(test_path)
 
 model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=conf.unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
 model.compile()
