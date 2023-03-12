@@ -26,7 +26,7 @@ class USegFormer(tf.keras.Model):
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_metric=config.threshold_metric
-        
+        self.loss_weights=config.loss_weights
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="GeneralizedFocalTversky_Loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
@@ -74,7 +74,7 @@ class USegFormer(tf.keras.Model):
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
-        self.loss_2=GeneralizedFocalTverskyLoss()
+        self.loss_2=tf.keras.losses.BinaryCrossentropy()
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
 
@@ -175,8 +175,8 @@ class USegFormer(tf.keras.Model):
 
 
 
-            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
+            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
+            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -211,8 +211,8 @@ class USegFormer(tf.keras.Model):
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
         
-        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)
+        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
+        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)

@@ -112,6 +112,72 @@ class DataGen(tf.keras.utils.Sequence):
 
 
 
+
+class EvalGen(tf.keras.utils.Sequence):
+    
+    def __init__(self, path_list,img_size=512,
+                 ):
+      
+        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+
+        self.pre_dis_files=pre_dis_files
+        self.pre_target_files=pre_target_files
+        self.post_dis_files=post_dis_files
+        self.post_target_files=post_target_files
+        self.n = len(self.post_dis_files)
+        self.batch_size=1
+        self.img_size=img_size
+
+    def split2piece(self,im):
+        #To Do 
+        #split other for imgsize
+        pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+        return pieces
+    
+    def __load_data__(self,i):  
+        pre_dis=cv2.imread(self.pre_dis_files[i],cv2.IMREAD_COLOR)
+        post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
+        post_target=create_inference_image(self.post_target_files[i])
+        pre_target=create_inference_image(self.pre_target_files[i])
+        pre_target=(pre_target>0.25)*1
+
+        post_target=get_encoded(post_target)
+        post_target=np.float32(post_target)
+        pre_target=np.expand_dims(np.float32(pre_target),axis=-1)
+
+        post_dis=np.float32(post_dis/255)
+        pre_dis=np.float32(pre_dis/255)
+        pre_target[np.isnan(pre_target)] = 0
+        post_target[np.isnan(post_target)] = 0
+
+        return self.split2piece(pre_dis),self.split2piece(post_dis),self.split2piece(pre_target),self.split2piece(post_target)
+
+
+
+    def __get_batch__(self,index_interval):
+        i_start=index_interval[0]
+        i_end=index_interval[1]
+        batch_pres=[]
+        batch_posts=[]
+        batch_post_targets=[]
+        batch_pre_targets=[]
+
+        for i in range(i_start,i_end):
+          pre_dis,post_dis,pre_target,post_target=self.__load_data__(i)
+          batch_pres.extend(pre_dis)
+          batch_posts.extend(post_dis)
+          batch_post_targets.extend(post_target)
+          batch_pre_targets.extend(pre_target)
+
+        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_pre_targets),np.asarray(batch_post_targets)
+
+    def __getitem__(self, index):
+        pres,posts,pre_targets,post_targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
+        return (pres,posts),(pre_targets,post_targets)
+    
+    def __len__(self):
+        return self.n // self.batch_size
+
 class UnetDataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,
@@ -264,68 +330,3 @@ class EvalUnetGen(tf.keras.utils.Sequence):
     def __len__(self):
         return self.n // self.batch_size
     
-
-class EvalGen(tf.keras.utils.Sequence):
-    
-    def __init__(self, path_list,img_size=512,
-                 ):
-      
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
-
-        self.pre_dis_files=pre_dis_files
-        self.pre_target_files=pre_target_files
-        self.post_dis_files=post_dis_files
-        self.post_target_files=post_target_files
-        self.n = len(self.post_dis_files)
-        self.batch_size=1
-        self.img_size=img_size
-
-    def split2piece(self,im):
-        #To Do 
-        #split other for imgsize
-        pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
-        return pieces
-    
-    def __load_data__(self,i):  
-        pre_dis=cv2.imread(self.pre_dis_files[i],cv2.IMREAD_COLOR)
-        post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
-        post_target=create_inference_image(self.post_target_files[i])
-        pre_target=create_inference_image(self.pre_target_files[i])
-        pre_target=(pre_target>0.25)*1
-
-        post_target=get_encoded(post_target)
-        post_target=np.float32(post_target)
-        pre_target=np.expand_dims(np.float32(pre_target),axis=-1)
-
-        post_dis=np.float32(post_dis/255)
-        pre_dis=np.float32(pre_dis/255)
-        pre_target[np.isnan(pre_target)] = 0
-        post_target[np.isnan(post_target)] = 0
-
-        return self.split2piece(pre_dis),self.split2piece(post_dis),self.split2piece(pre_target),self.split2piece(post_target)
-
-
-
-    def __get_batch__(self,index_interval):
-        i_start=index_interval[0]
-        i_end=index_interval[1]
-        batch_pres=[]
-        batch_posts=[]
-        batch_post_targets=[]
-        batch_pre_targets=[]
-
-        for i in range(i_start,i_end):
-          pre_dis,post_dis,pre_target,post_target=self.__load_data__(i)
-          batch_pres.extend(pre_dis)
-          batch_posts.extend(post_dis)
-          batch_post_targets.extend(post_target)
-          batch_pre_targets.extend(pre_target)
-
-        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_pre_targets),np.asarray(batch_post_targets)
-
-    def __getitem__(self, index):
-        pres,posts,pre_targets,post_targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
-        return (pres,posts),(pre_targets,post_targets)
-    
-    def __len__(self):
-        return self.n // self.batch_size
