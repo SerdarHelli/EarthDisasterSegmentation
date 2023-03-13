@@ -114,6 +114,7 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
         if self.sr_ratio > 1:
             # Reshape to (batch_size, height, width, num_channels)
             hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
+            
             # Apply sequence reduction
             hidden_states = self.sr(hidden_states)
             # Reshape back to (batch_size, seq_len, num_channels)
@@ -567,7 +568,7 @@ class TFCrossSegformerForSemanticSegmentation(tf.keras.Model):
         super().__init__( **kwargs)
         self.segformer = TFSegformerMainLayer(config, name="segformer")
         self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
-        self.final_activation = tf.keras.layers.Activation("sigmoid")
+        self.final_activation = tf.keras.layers.Activation("softmax")
         self.config=config
 
     def call(
