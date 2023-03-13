@@ -12,7 +12,7 @@ class DataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
@@ -118,7 +118,7 @@ class EvalGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
@@ -184,7 +184,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,dilation=True,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.mask_files=pre_target_files
         self.image_files=pre_dis_files
@@ -273,7 +273,7 @@ class EvalUnetGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
