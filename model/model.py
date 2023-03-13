@@ -173,10 +173,7 @@ class USegFormer(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-
-            dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-
-            loss_1=dices["total_dice"]*self.loss_weights[0]
+            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
             loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
@@ -212,9 +209,8 @@ class USegFormer(tf.keras.Model):
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
     
-        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
 
-        loss_1=dices["total_dice"]*self.loss_weights[0]
+        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
         loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
