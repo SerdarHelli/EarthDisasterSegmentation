@@ -110,7 +110,6 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
         num_channels = tf.shape(hidden_states)[2]
 
         query_layer = self.transpose_for_scores(self.query(hidden_states))
-        mask = tf.image.resize(mask, (height, width), method="nearest")
 
         if self.sr_ratio > 1:
             # Reshape to (batch_size, height, width, num_channels)
@@ -347,6 +346,17 @@ class TFSegformerEncoder(tf.keras.Model):
             )
         self.embeddings = embeddings
 
+        embeddings_mask = []
+        for i in range(config.num_encoder_blocks):
+            embeddings.append(
+                TFSegformerOverlapPatchEmbeddings(
+                    patch_size=config.patch_sizes[i],
+                    stride=config.strides[i],
+                    hidden_size=config.hidden_sizes[i],
+                    name=f"patch_embeddings.{i}",
+                )
+            )
+        self.embeddings_mask = embeddings_mask
         # Transformer blocks
         blocks = []
         cur = 0
@@ -392,17 +402,20 @@ class TFSegformerEncoder(tf.keras.Model):
         batch_size = tf.shape(pixel_values)[0]
 
         hidden_states = pixel_values
-        for idx, x in enumerate(zip(self.embeddings, self.block, self.layer_norms)):
-            embedding_layer, block_layer, norm_layer = x
+        hidden_mask_states = mask_values
+
+        for idx, x in enumerate(zip(self.embeddings,self.embeddings_mask , self.block, self.layer_norms)):
+            embedding_layer,embedding_mask_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
+            hidden_mask_states, height, width = embedding_mask_layer(hidden_mask_states)
 
             # second, send embeddings through blocks
             # (each block consists of multiple layers i.e., list of layers)
             for i, blk in enumerate(block_layer):
                 layer_outputs = blk(
                     hidden_states,
-                    mask_values,
+                    hidden_mask_states,
                     height,
                     width,
                     output_attentions,
@@ -442,7 +455,6 @@ class TFSegformerMainLayer(tf.keras.Model):
         self,
         pixel_values: tf.Tensor,
         mask_values:tf.Tensor,
-
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
