@@ -1,6 +1,6 @@
 
 import tensorflow as tf
-from model.segformer import TFSegformerForSemanticSegmentation
+from model.segformer_cross import TFCrossSegformerForSemanticSegmentation
 from model.unet import *
 import tensorflow.keras.backend as K
 from model.loss import *
@@ -23,7 +23,7 @@ class USegFormer(tf.keras.Model):
         self.gradient_clip_value=config.gradient_clip_value
         self.unet_layer=None
         self.load_unetmodel(unet_config,unet_checkpoint_path)
-        self.segformer_layer = TFSegformerForSemanticSegmentation(config)
+        self.segformer_layer = TFCrossSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
@@ -63,8 +63,7 @@ class USegFormer(tf.keras.Model):
         local_map,hidden_states=self.unet_layer(input_pre)
         self.unet_layer.trainable=False
         #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
-        concatted = tf.keras.layers.Concatenate()([input_post, local_map])
-        output=self.segformer_layer(concatted,hidden_states)
+        output=self.segformer_layer(input_post,local_map,hidden_states)
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
         return model
 
