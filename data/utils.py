@@ -36,9 +36,9 @@ def get_idx_all_path(path_list):
       k,c,x,y=get_idx_path(path)
       pre_dis_files.extend(k)
       post_dis_files.extend(c)
-      post_target_files.extend(x)
-      pre_target_files.extend(y)
-  return pre_dis_files,post_dis_files,pre_target_files,post_target_files
+      post_target_files.extend(y)
+      pre_target_files.extend(x)
+  return pre_dis_files,post_dis_files,post_target_files,pre_target_files
 
 
   ##ref https://github.com/BloodAxe/xView2-Solution/blob/d4bd7a4f0d7d27c41c79826cd8135f39093884be/xview/utils/inference_image_output.py#L130
