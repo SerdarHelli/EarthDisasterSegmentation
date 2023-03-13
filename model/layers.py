@@ -15,9 +15,9 @@ def getNorm(norm_str,eps=1e-6):
 
 class SqueezeAndExcite2D(tf.keras.layers.Layer):
     """
-    ref : KerasCv ref https://github.com/keras-team/keras-cv/blob/v0.4.2/keras_cv/layers/regularization/squeeze_excite.py#L20
-    Implements Squeeze and Excite block as in
-    [Squeeze-and-Excitation Networks](https://arxiv.org/pdf/1709.01507.pdf).
+        ref : KerasCv ref https://github.com/keras-team/keras-cv/blob/v0.4.2/keras_cv/layers/regularization/squeeze_excite.py#L20
+        Implements Squeeze and Excite block as in
+        [Squeeze-and-Excitation Networks](https://arxiv.org/pdf/1709.01507.pdf).
     """
 
     def __init__(

@@ -12,7 +12,7 @@ class DataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
@@ -54,12 +54,13 @@ class DataGen(tf.keras.utils.Sequence):
         post_target=create_inference_image(self.post_target_files[i])
         pre_target=create_inference_image(self.pre_target_files[i])
         pre_target=(pre_target>0.25)*1
+        post_target=get_encoded(post_target)
 
         #post_target[post_target==5]=1
 
         if self.augmentation==True:
             transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
-            if random.random() > 0.5:
+            if random.random() > 0.8:
                 transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
             else:
                 transformed = self.transform_no_aug(image=pre_dis,image1=post_dis, mask=post_target,mask1=pre_target)
@@ -72,7 +73,6 @@ class DataGen(tf.keras.utils.Sequence):
         post_target_aug = transformed['mask']
         pre_target_aug = transformed['mask1']
 
-        post_target_aug=get_encoded(post_target_aug)
         post_target_aug=np.float32(post_target_aug)
         pre_target_aug=np.expand_dims(np.float32(pre_target_aug),axis=-1)
 
@@ -118,7 +118,7 @@ class EvalGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
@@ -184,7 +184,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,dilation=True,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.mask_files=pre_target_files
         self.image_files=pre_dis_files
@@ -226,7 +226,7 @@ class UnetDataGen(tf.keras.utils.Sequence):
           mask=(mask>127)*1
 
         if self.augmentation==True:
-            if random.random() > 0.5:
+            if random.random() > 0.7:
                 transformed = self.transform(image=image,mask=mask)
             else:
                 transformed = self.transform_no_aug(image=image,mask=mask)
@@ -273,7 +273,7 @@ class EvalUnetGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,pre_target_files,post_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
         self.pre_target_files=pre_target_files
