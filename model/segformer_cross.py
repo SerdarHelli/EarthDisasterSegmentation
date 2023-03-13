@@ -86,7 +86,10 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
                 filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
             )
             self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
-
+            self.sr_mask = tf.keras.layers.Conv2D(
+                        filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
+                    )
+            self.layer_norm_mask = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
     def transpose_for_scores(self, tensor: tf.Tensor) -> tf.Tensor:
         # Reshape from [batch_size, seq_length, all_head_size]
         # to [batch_size, seq_length, num_attention_heads, attention_head_size]
@@ -114,14 +117,19 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
         if self.sr_ratio > 1:
             # Reshape to (batch_size, height, width, num_channels)
             hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
-            
+            mask = tf.reshape(mask, (batch_size, height, width, num_channels))
+
             # Apply sequence reduction
             hidden_states = self.sr(hidden_states)
+            mask = self.sr_mask(mask)
+
             # Reshape back to (batch_size, seq_len, num_channels)
             hidden_states = tf.reshape(hidden_states, (batch_size, -1, num_channels))
             hidden_states = self.layer_norm(hidden_states)
+            mask = tf.reshape(mask, (batch_size, -1, num_channels))
+            mask = self.layer_norm_mask(mask)
 
-        key_layer = self.transpose_for_scores(self.key(mask))
+        key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(mask))
 
         # Take the dot product between "query" and "key" to get the raw attention scores.
@@ -349,12 +357,12 @@ class TFSegformerEncoder(tf.keras.Model):
 
         embeddings_mask = []
         for i in range(config.num_encoder_blocks):
-            embeddings.append(
+            embeddings_mask.append(
                 TFSegformerOverlapPatchEmbeddings(
                     patch_size=config.patch_sizes[i],
                     stride=config.strides[i],
                     hidden_size=config.hidden_sizes[i],
-                    name=f"patch_embeddings.{i}",
+                    name=f"mask_patch_embeddings.{i}",
                 )
             )
         self.embeddings_mask = embeddings_mask
@@ -388,6 +396,10 @@ class TFSegformerEncoder(tf.keras.Model):
             for i in range(config.num_encoder_blocks)
         ]
 
+        self.init_mask_conv=tf.keras.layers.Conv2D(
+            filters=3, kernel_size=1,  padding="same", use_bias=False
+        )
+
     def call(
         self,
         pixel_values: tf.Tensor,
@@ -403,13 +415,13 @@ class TFSegformerEncoder(tf.keras.Model):
         batch_size = tf.shape(pixel_values)[0]
 
         hidden_states = pixel_values
-        hidden_mask_states = mask_values
+        hidden_mask_states = self.init_mask_conv(mask_values)
 
         for idx, x in enumerate(zip(self.embeddings,self.embeddings_mask , self.block, self.layer_norms)):
             embedding_layer,embedding_mask_layer, block_layer, norm_layer = x
             # first, obtain patch embeddings
             hidden_states, height, width = embedding_layer(hidden_states)
-            hidden_mask_states, height, width = embedding_mask_layer(hidden_mask_states)
+            hidden_mask_states, _, _ = embedding_mask_layer(hidden_mask_states)
 
             # second, send embeddings through blocks
             # (each block consists of multiple layers i.e., list of layers)
@@ -433,6 +445,7 @@ class TFSegformerEncoder(tf.keras.Model):
             if idx != len(self.embeddings) - 1 or (idx == len(self.embeddings) - 1 and self.config.reshape_last_stage):
                 num_channels = tf.shape(hidden_states)[-1]
                 hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
+                hidden_mask_states=tf.reshape(hidden_mask_states, (batch_size, height, width, num_channels))
 
             if output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
