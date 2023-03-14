@@ -75,7 +75,7 @@ class USegFormer(tf.keras.Model):
         super().compile(**kwargs)
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
-        self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
+        self.loss_1=DiceLoss()
         self.loss_2=tf.keras.losses.BinaryCrossentropy()
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
         self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
@@ -96,7 +96,7 @@ class USegFormer(tf.keras.Model):
             self.f1_majordamage_tracker ,
             self.f1_destroyed_tracker   ,
             self.f1_unclassified_tracker,
-
+            self.iou_score2_tracker,
         ]
     
 
@@ -116,8 +116,38 @@ class USegFormer(tf.keras.Model):
         dices["unclassified"]=(2*d5)/(1+d5)
         dices["total_dice"]= (dices["nodamage"]+dices["minordamage"]+dices["majordamage"]+dices["unclassified"])/5
         return dices
+    
+    def loss1_full_compute(self,y_true, y_pred,weights=None):
+        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d1=d1*weights[0]
+            d2=d2*weights[1]
+            d3=d3*weights[2]
+            d4=d4*weights[3]
+            d5=d5*weights[4]
+            return loss
+        loss=(d1+d2+d3+d4+d5)/5
+        return loss
 
-
+    def loss2_full_compute(self,y_true, y_pred,weights=None):
+        d1=self.loss_2(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.loss_2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.loss_2(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.loss_2(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.loss_2(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d1=d1*weights[0]
+            d2=d2*weights[1]
+            d3=d3*weights[2]
+            d4=d4*weights[3]
+            d5=d5*weights[4]
+            return loss
+        loss=(d1+d2+d3+d4+d5)/5
+        return loss
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
                                                 network=self.network,
@@ -175,8 +205,8 @@ class USegFormer(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=[0.1,0.1,0.3,0.2,2])*self.loss_weights[0]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -212,8 +242,8 @@ class USegFormer(tf.keras.Model):
 
     
 
-        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=[0.1,0.1,0.3,0.2,2])*self.loss_weights[0]
+        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
