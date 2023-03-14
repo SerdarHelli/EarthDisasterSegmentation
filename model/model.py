@@ -30,13 +30,14 @@ class USegFormer(tf.keras.Model):
         self.loss_weights=config.loss_weights
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="Crossentropy_Loss")
-        self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
+        self.iou_score_tracker= tf.keras.metrics.Mean(name="Meaniou")
         self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
         self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
         self.f1_minordamage_tracker  = tf.keras.metrics.Mean(name="f1_minordamage")
         self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
+        self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
 
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
@@ -77,7 +78,11 @@ class USegFormer(tf.keras.Model):
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
         self.loss_2=tf.keras.losses.BinaryCrossentropy()
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-
+        self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score2=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score3=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score4=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score5=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
     @property
     def metrics(self):
@@ -96,14 +101,13 @@ class USegFormer(tf.keras.Model):
     
 
 
-    
     def dice_classes_score(self,y_true, y_pred):
         dices={}
-        d1=self.iou_score(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d2=self.iou_score(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d3=self.iou_score(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d4=self.iou_score(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d5=self.iou_score(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        d1=self.iou_score1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.iou_score2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.iou_score3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.iou_score4(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.iou_score5(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
         dices["nodamage"]=(2*d1)/(1+d1)
         dices["minordamage"]=(2*d2)/(1+d2)
@@ -112,9 +116,6 @@ class USegFormer(tf.keras.Model):
         dices["unclassified"]=(2*d5)/(1+d5)
         dices["total_dice"]= (dices["nodamage"]+dices["minordamage"]+dices["majordamage"]+dices["unclassified"])/5
         return dices
-
-
-
 
 
     def load(self,usage="train",return_epoch_number=True):
@@ -194,7 +195,7 @@ class USegFormer(tf.keras.Model):
         self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
         self.f1_unclassified_tracker.update_state(dices["unclassified"])
-
+        self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
 
         results = {m.name: m.result() for m in self.metrics}
         return results
@@ -227,6 +228,8 @@ class USegFormer(tf.keras.Model):
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
+        self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
+
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -253,8 +256,8 @@ class USegFormerSeperated(tf.keras.Model):
         self.loss_weights=config.loss_weights
 
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
-        self.loss_2_tracker = tf.keras.metrics.Mean(name="WeightedCategoricalCrossentropy_Loss")
-        self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="Crossentropy_Loss")
+        self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
         self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
         self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
         self.f1_minordamage_tracker  = tf.keras.metrics.Mean(name="f1_minordamage")
@@ -262,6 +265,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
         self.f1_local_tracker    =    tf.keras.metrics.Mean(name="f1_local")
+        self.iou_score_tracker=tf.keras.metrics.Mean(name="Meaniou")
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
@@ -315,6 +319,13 @@ class USegFormerSeperated(tf.keras.Model):
         self.loss_1=DiceLoss(weight=[ .4 , .4 , 2.4 , 1.2 ,.8])
         self.loss_2=tf.keras.losses.BinaryCrossentropy()
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score2=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score3=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score4=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.iou_score5=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+
+        self.iou_score_local=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
 
     @property
@@ -330,16 +341,17 @@ class USegFormerSeperated(tf.keras.Model):
             self.f1_destroyed_tracker   ,
             self.f1_unclassified_tracker,
             self.f1_local_tracker,
+            self.iou_score2_tracker
 
         ]
   
     def dice_classes_score(self,y_true, y_pred):
         dices={}
-        d1=self.iou_score(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d2=self.iou_score(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d3=self.iou_score(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d4=self.iou_score(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d5=self.iou_score(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        d1=self.iou_score1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.iou_score2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.iou_score3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.iou_score4(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.iou_score5(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
         dices["nodamage"]=(2*d1)/(1+d1)
         dices["minordamage"]=(2*d2)/(1+d2)
@@ -396,9 +408,10 @@ class USegFormerSeperated(tf.keras.Model):
 
         (x_pre,x_post),(local_map,multilabel_map)=inputs
 
-        y_local,hiddens=self.unet_layer(x_pre,training=False)
 
         with tf.GradientTape() as tape:
+            y_local,hiddens=self.unet_layer(x_pre,training=False)
+
             y_multilabel = self.network([x_post,y_local,hiddens], training=True)
             upsample_resolution = tf.shape(multilabel_map)
      
@@ -413,9 +426,12 @@ class USegFormerSeperated(tf.keras.Model):
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
+
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-        local_iou=self.iou_score(K.flatten(local_map),K.flatten(y_local))
+
+        local_iou=self.iou_score_local(K.flatten(local_map),K.flatten(y_local))
         local_f1=(2*local_iou)/(1+local_iou)
+
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
@@ -426,7 +442,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
         self.f1_unclassified_tracker.update_state(dices["unclassified"])
         self.f1_local_tracker.update_state(local_f1)
-
+        self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -447,8 +463,10 @@ class USegFormerSeperated(tf.keras.Model):
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-        local_iou=self.iou_score(K.flatten(local_map),K.flatten(y_local))
+
+        local_iou=self.iou_score_local(K.flatten(local_map),K.flatten(y_local))
         local_f1=(2*local_iou)/(1+local_iou)
+
         self.f1_total_tracker.update_state(total_dice)   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
@@ -459,5 +477,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
         self.f1_local_tracker.update_state(local_f1)
+        self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
+
         results = {m.name: m.result() for m in self.metrics}
         return results

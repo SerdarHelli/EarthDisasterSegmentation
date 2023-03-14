@@ -70,6 +70,6 @@ test_path:
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/segformer"
 unet_checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans"
 unet_config_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans/config.yaml"
-step_warmup: 5000
-threshold_metric: 0.25
-seperated_training: True
+step_warmup: 6000
+threshold_metric: 0.5
+seperated_training: False
