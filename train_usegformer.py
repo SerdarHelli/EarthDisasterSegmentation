@@ -1,7 +1,7 @@
 import argparse    
 from omegaconf import OmegaConf
 import tensorflow as tf
-from model.model import USegFormer
+from model.model import USegFormer,USegFormerSeperated
 from model.callbacks import *
 import os
 from data.dataloader import DataGen,EvalGen
@@ -26,7 +26,11 @@ unet_config=OmegaConf.load(conf.unet_config_path)
 train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
 eval_Data=EvalGen(test_path)
 
-model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
+if conf.seperated_training==False:
+    model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
+else:
+     model=USegFormerSeperated(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
+
 model.compile()
 returned_epoch=model.load()
 
