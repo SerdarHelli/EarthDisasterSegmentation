@@ -56,14 +56,14 @@ class USegFormer(tf.keras.Model):
         layer_names=[layer.name for layer in unet_model.network.layers]
 
         self.unet_layer=unet_model.network.get_layer(layer_names[-1])
-        self.unet_layer.trainable=False
         del unet_model
 
     def build_usegformer(self,):
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
+        
         local_map,hidden_states=self.unet_layer(input_pre)
-        self.unet_layer.trainable=False
+        self.unet_layer.trainable=True
         #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
         x=tf.keras.layers.Concatenate()([input_post,local_map])
         output=self.segformer_layer(x,hidden_states)
