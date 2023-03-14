@@ -112,7 +112,8 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
 
         query_layer = self.transpose_for_scores(self.query(hidden_states))
 
-        mask=tf.image.resize(mask,(tf.shape(hidden_states)[1:]))
+        if tf.shape(mask)[1]!=tf.shape(hidden_states)[1]:
+            mask=tf.image.resize(mask,(height * width, num_channels))
 
         if self.sr_ratio > 1:
             mask = tf.reshape(mask, (batch_size, height, width, num_channels))
