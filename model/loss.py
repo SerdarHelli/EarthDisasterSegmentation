@@ -47,8 +47,8 @@ class DiceLoss(tf.keras.losses.Loss):
 
     def call(self, y_true, y_pred):
 
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1,2])
-        union = K.sum(y_true, axis=[1,2,]) + K.sum(y_pred, axis=[1,2])
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[1])
+        union = K.sum(y_true, axis=[1]) + K.sum(y_pred, axis=[1])
         dice= 1- ((2. * intersection + self.epsilon) / (union + self.epsilon))
 
         dice=K.mean(dice)
