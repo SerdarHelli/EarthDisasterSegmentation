@@ -114,6 +114,8 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
 
         query_layer = self.transpose_for_scores(self.query(hidden_states))
 
+        mask=tf.image.resize(mask,(tf.shape(hidden_states)[1:]))
+
         if self.sr_ratio > 1:
             # Reshape to (batch_size, height, width, num_channels)
             hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
@@ -129,7 +131,7 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
             mask = tf.reshape(mask, (batch_size, -1, num_channels))
             mask = self.layer_norm_mask(mask)
 
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
+        key_layer = self.transpose_for_scores(self.key(mask))
         value_layer = self.transpose_for_scores(self.value(mask))
 
         # Take the dot product between "query" and "key" to get the raw attention scores.

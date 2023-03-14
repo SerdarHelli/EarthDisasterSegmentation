@@ -1,6 +1,8 @@
 
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
+from model.segformer_cross import TFCrossSegformerForSemanticSegmentation
+
 from model.unet import *
 import tensorflow.keras.backend as K
 from model.loss import *
@@ -38,6 +40,7 @@ class USegFormer(tf.keras.Model):
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
         self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
+        self.weights=config.weights
 
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
@@ -63,7 +66,7 @@ class USegFormer(tf.keras.Model):
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         
         local_map,hidden_states=self.unet_layer(input_pre)
-        self.unet_layer.trainable=True
+        self.unet_layer.trainable=False
         #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
         x=tf.keras.layers.Concatenate()([input_post,local_map])
         output=self.segformer_layer(x,hidden_states)
@@ -208,8 +211,8 @@ class USegFormer(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=[0.1,0.1,0.3,0.2,2])*self.loss_weights[0]
-            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -283,7 +286,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
         self.unet_layer=self.load_unetmodel(unet_config,unet_checkpoint_path)
-        self.segformer_layer = TFSegformerForSemanticSegmentation(config)
+        self.segformer_layer = TFCrossSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
@@ -307,7 +310,7 @@ class USegFormerSeperated(tf.keras.Model):
             
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
-    
+        self.weights=config.weights
     def load_unetmodel(self,unet_config,unet_checkpoint_path):
         unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
         unet_model.compile()
@@ -433,7 +436,40 @@ class USegFormerSeperated(tf.keras.Model):
           if return_epoch_number==True:
             return int(self.checkpoint.epoch)
     
+    def loss1_full_compute(self,y_true, y_pred,weights=None):
+        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d1=d1*weights[0]
+            d2=d2*weights[1]
+            d3=d3*weights[2]
+            d4=d4*weights[3]
+            d5=d5*weights[4]
+            loss=(d1+d2+d3+d4+d5)
+            return loss
+        loss=(d1+d2+d3+d4+d5)/5
+        return loss
 
+    def loss2_full_compute(self,y_true, y_pred,weights=None):
+        d1=self.loss_2(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d2=self.loss_2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d3=self.loss_2(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d4=self.loss_2(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d5=self.loss_2(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d1=d1*weights[0]
+            d2=d2*weights[1]
+            d3=d3*weights[2]
+            d4=d4*weights[3]
+            d5=d5*weights[4]
+            loss=(d1+d2+d3+d4+d5)
+            return loss      
+
+        loss=(d1+d2+d3+d4+d5)/5
+        return loss
     def train_step(self, inputs):
         # 1. Get the batch size
         self.checkpoint.step.assign_add(1)
@@ -450,8 +486,8 @@ class USegFormerSeperated(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-            loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -490,8 +526,8 @@ class USegFormerSeperated(tf.keras.Model):
   
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-        loss_1=self.loss_1(multilabel_map,y_multilabel_resized)*self.loss_weights[0]
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
+        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)

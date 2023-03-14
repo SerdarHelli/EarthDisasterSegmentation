@@ -54,15 +54,21 @@ input_shape:
 - 512
 - 3
 loss_weights:
-  - 0.5
+  - 0.25
   - 10
+weights:
+  - 1
+  - 2
+  - 6
+  - 3
+  - 8
 decoder_hidden_size: 512
 semantic_loss_ignore_index: 255
 num_labels: 5
 batch_size: 1
 epochs: 25
-lr: 1.0e-04
-weight_decay: 1.0e-05
+lr: 1.0e-03
+weight_decay: 1.0e-04
 train_path: 
 - "/content/train"
 test_path:
@@ -70,6 +76,6 @@ test_path:
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/segformer"
 unet_checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans"
 unet_config_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans/config.yaml"
-step_warmup: 6000
-threshold_metric: 0.5
-seperated_training: False
+step_warmup: 5000
+threshold_metric: 0.25
+seperated_training: True
