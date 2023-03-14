@@ -6,6 +6,7 @@ import tensorflow.keras.backend as K
 from model.loss import *
 import os
 import datetime
+from utils.utils import instantiate_from_config
 
 
 
@@ -28,7 +29,7 @@ class USegFormer(tf.keras.Model):
         self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
-        self.loss_2_tracker = tf.keras.metrics.Mean(name="WeightedCategoricalCrossentropy_Loss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="Crossentropy_Loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
         self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
@@ -237,7 +238,7 @@ class USegFormerSeperated(tf.keras.Model):
     def __init__(self, config,checkpoint_path,unet_config,unet_checkpoint_path,
                  special_checkpoint=None,
                  ):
-        super(USegFormer,self).__init__()
+        super(USegFormerSeperated,self).__init__()
         self.config=config
         self.lr=config.lr
         self.weight_decay=config.weight_decay
@@ -245,12 +246,12 @@ class USegFormerSeperated(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-        self.unet_layer=None
-        self.load_unetmodel(unet_config,unet_checkpoint_path)
+        self.unet_layer=self.load_unetmodel(unet_config,unet_checkpoint_path)
         self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
+
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="WeightedCategoricalCrossentropy_Loss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
@@ -260,7 +261,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
-
+        self.f1_local_tracker    =    tf.keras.metrics.Mean(name="f1_local")
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
@@ -276,14 +277,18 @@ class USegFormerSeperated(tf.keras.Model):
         print("Loading Unet Model")
         unet_model.load(usage="eval")
         layer_names=[layer.name for layer in unet_model.network.layers]
+        unet_layer_trained=unet_model.network.get_layer(layer_names[-1])
 
-        self.unet_layer=unet_model.network.get_layer(layer_names[-1])
-        self.unet_layer.trainable=False
-        del unet_model
+        input_image = tf.keras.Input(shape=self.shape_input)
+        unet_layer=instantiate_from_config(unet_config.unet)
+        local_map,hidden_states=unet_layer(input_image)
+        model = tf.keras.Model(inputs=input_image, outputs=[local_map,hidden_states])
+        unet_layer.set_weights(unet_layer_trained.get_weights())
+        return model
 
     def build_usegformer(self,):
         post_image = tf.keras.Input(shape=self.shape_input,name="post_image")
-        pre_target = tf.keras.Input(shape=self.shape_input,name="pre_image")
+        pre_target = tf.keras.Input(shape=self.unet_layer.output[0].shape[1:],name="pre_image")
 
         shapes=[]
         for hiddens in self.unet_layer.output[1]:
@@ -324,6 +329,7 @@ class USegFormerSeperated(tf.keras.Model):
             self.f1_majordamage_tracker ,
             self.f1_destroyed_tracker   ,
             self.f1_unclassified_tracker,
+            self.f1_local_tracker,
 
         ]
   
@@ -390,10 +396,9 @@ class USegFormerSeperated(tf.keras.Model):
 
         (x_pre,x_post),(local_map,multilabel_map)=inputs
 
+        y_local,hiddens=self.unet_layer(x_pre,training=False)
 
         with tf.GradientTape() as tape:
-            
-            y_local,hiddens=self.unet_layer(x_pre)
             y_multilabel = self.network([x_post,y_local,hiddens], training=True)
             upsample_resolution = tf.shape(multilabel_map)
      
@@ -409,7 +414,8 @@ class USegFormerSeperated(tf.keras.Model):
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-
+        local_iou=self.iou_score(K.flatten(local_map),K.flatten(y_local))
+        local_f1=(2*local_iou)/(1+local_iou)
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
@@ -419,7 +425,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
         self.f1_unclassified_tracker.update_state(dices["unclassified"])
-
+        self.f1_local_tracker.update_state(local_f1)
 
         results = {m.name: m.result() for m in self.metrics}
         return results
@@ -429,8 +435,8 @@ class USegFormerSeperated(tf.keras.Model):
         # 1. Get the batch size
         (x_pre,x_post),(local_map,multilabel_map)=inputs
 
-        y_local,hiddens=self.unet_layer(x_pre)
-        y_multilabel = self.network([x_post,y_local,hiddens], training=True)
+        y_local,hiddens=self.unet_layer(x_pre,training=False)
+        y_multilabel = self.network([x_post,y_local,hiddens], training=False)
         upsample_resolution = tf.shape(multilabel_map)
   
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
@@ -441,7 +447,8 @@ class USegFormerSeperated(tf.keras.Model):
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
-
+        local_iou=self.iou_score(K.flatten(local_map),K.flatten(y_local))
+        local_f1=(2*local_iou)/(1+local_iou)
         self.f1_total_tracker.update_state(total_dice)   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
@@ -451,5 +458,6 @@ class USegFormerSeperated(tf.keras.Model):
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
+        self.f1_local_tracker.update_state(local_f1)
         results = {m.name: m.result() for m in self.metrics}
         return results

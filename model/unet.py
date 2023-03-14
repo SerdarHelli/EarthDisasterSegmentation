@@ -1,4 +1,3 @@
-
 import tensorflow as tf
 import numpy as np
 import tensorflow.keras.backend as K
@@ -18,7 +17,6 @@ class TransUNet_AutoEncoder(tf.keras.layers.Layer):
 
     """
         U-Net AutoEncoder:
-
         All blocks are resblock. 
         
         Between encoder and decoder , there is vit block.
@@ -26,7 +24,6 @@ class TransUNet_AutoEncoder(tf.keras.layers.Layer):
         Paper Ref:
         TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
         Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
-
     """
     def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
@@ -108,7 +105,6 @@ class TransUNetRES_AutoEncoder(tf.keras.layers.Layer):
 
     """
         U-Net AutoEncoder:
-
         All blocks are resblock. 
         
         Between encoder and decoder , there is vit block.
@@ -116,7 +112,6 @@ class TransUNetRES_AutoEncoder(tf.keras.layers.Layer):
         Paper Ref:
         TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
         Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
-
     """
     def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
@@ -501,16 +496,12 @@ class UNet_SEResNextBlock_AutoEncoder(tf.keras.layers.Layer):
 
     """
         U-Net AutoEncoder:
-
         Encoder first and second block is consists of convblock . They are like steem.
         The last four blocks of encoder are SE ResNeXt block.
-
         SE ResNeXt is a variant of a ResNext that employs squeeze-and-excitation blocks to enable the network to perform dynamic channel-wise feature recalibration.
         Paper Ref:
         For SE Original paper: 'Squeeze-and-Excitation Networks,' https://arxiv.org/abs/1709.01507.
         FOR ResNeXt Original paper : Xie, Saining, et al. "Aggregated residual transformations for deep neural networks." Proceedings of the IEEE conference on computer vision and pattern recognition. 2017.
-
-
     """
     def __init__(self, hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
         super().__init__(**kwargs)
