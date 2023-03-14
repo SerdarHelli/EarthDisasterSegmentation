@@ -86,10 +86,8 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
                 filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
             )
             self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
-            self.sr_mask = tf.keras.layers.Conv2D(
-                        filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
-                    )
-            self.layer_norm_mask = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
+
+
     def transpose_for_scores(self, tensor: tf.Tensor) -> tf.Tensor:
         # Reshape from [batch_size, seq_length, all_head_size]
         # to [batch_size, seq_length, num_attention_heads, attention_head_size]
@@ -117,19 +115,10 @@ class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
         mask=tf.image.resize(mask,(tf.shape(hidden_states)[1:]))
 
         if self.sr_ratio > 1:
-            # Reshape to (batch_size, height, width, num_channels)
-            hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
             mask = tf.reshape(mask, (batch_size, height, width, num_channels))
-
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states)
-            mask = self.sr_mask(mask)
-
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = tf.reshape(hidden_states, (batch_size, -1, num_channels))
-            hidden_states = self.layer_norm(hidden_states)
+            mask = self.sr(mask)      
             mask = tf.reshape(mask, (batch_size, -1, num_channels))
-            mask = self.layer_norm_mask(mask)
+            mask = self.layer_norm(mask)
 
         key_layer = self.transpose_for_scores(self.key(mask))
         value_layer = self.transpose_for_scores(self.value(mask))

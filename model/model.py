@@ -40,7 +40,7 @@ class USegFormer(tf.keras.Model):
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
         self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
-        self.weights=config.weights
+        self.class_weights=config.weights
 
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
@@ -211,8 +211,8 @@ class USegFormer(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
-            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -310,7 +310,7 @@ class USegFormerSeperated(tf.keras.Model):
             
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
-        self.weights=config.weights
+        self.class_weights=config.weights
     def load_unetmodel(self,unet_config,unet_checkpoint_path):
         unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
         unet_model.compile()
@@ -485,8 +485,8 @@ class USegFormerSeperated(tf.keras.Model):
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
-            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -525,8 +525,8 @@ class USegFormerSeperated(tf.keras.Model):
   
         y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
-        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[0]
-        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.weights)*self.loss_weights[1]
+        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)
