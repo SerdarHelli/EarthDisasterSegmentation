@@ -1,7 +1,6 @@
 
 import tensorflow as tf
 from model.segformer import TFSegformerForSemanticSegmentation
-from model.segformer_cross import TFCrossSegformerForSemanticSegmentation
 
 from model.unet import *
 import tensorflow.keras.backend as K
@@ -286,7 +285,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
         self.unet_layer=self.load_unetmodel(unet_config,unet_checkpoint_path)
-        self.segformer_layer = TFCrossSegformerForSemanticSegmentation(config)
+        self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=self.build_usegformer()
         self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
@@ -341,8 +340,9 @@ class USegFormerSeperated(tf.keras.Model):
         hiddens_2= tf.keras.Input(shape=shapes[2],name="hiddens2")
         hiddens_3= tf.keras.Input(shape=shapes[3],name="hiddens3")
         hiddens=[hiddens_0,hiddens_1,hiddens_2,hiddens_3]
+        x=tf.keras.layers.Concatenate()([post_image,pre_target])
 
-        output=self.segformer_layer(post_image,pre_target,hiddens)
+        output=self.segformer_layer(x,hiddens)
         model = tf.keras.Model(inputs=[post_image,pre_target,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], outputs=[output])
         return model
 
