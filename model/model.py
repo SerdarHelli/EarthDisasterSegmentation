@@ -341,9 +341,8 @@ class USegFormerSeperated(tf.keras.Model):
         hiddens_2= tf.keras.Input(shape=shapes[2],name="hiddens2")
         hiddens_3= tf.keras.Input(shape=shapes[3],name="hiddens3")
         hiddens=[hiddens_0,hiddens_1,hiddens_2,hiddens_3]
-        concatted_post_image=tf.keras.layers.Concatenate()([post_image,pre_target])
 
-        output=self.segformer_layer(concatted_post_image,hiddens)
+        output=self.segformer_layer(post_image,pre_target,hiddens)
         model = tf.keras.Model(inputs=[post_image,pre_target,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], outputs=[output])
         return model
 
