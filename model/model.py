@@ -58,6 +58,7 @@ class USegFormer(tf.keras.Model):
         layer_names=[layer.name for layer in unet_model.network.layers]
 
         self.unet_layer=unet_model.network.get_layer(layer_names[-1])
+        self.unet_layer.trainable=False
         del unet_model
 
     def build_usegformer(self,):
@@ -131,8 +132,6 @@ class USegFormer(tf.keras.Model):
             d3=d3*weights[2]
             d4=d4*weights[3]
             d5=d5*weights[4]
-            loss=(d1+d2+d3+d4+d5)
-            return loss
         loss=(d1+d2+d3+d4+d5)/5
         return loss
 
@@ -148,9 +147,6 @@ class USegFormer(tf.keras.Model):
             d3=d3*weights[2]
             d4=d4*weights[3]
             d5=d5*weights[4]
-            loss=(d1+d2+d3+d4+d5)
-            return loss      
-
         loss=(d1+d2+d3+d4+d5)/5
         return loss
     def load(self,usage="train",return_epoch_number=True):

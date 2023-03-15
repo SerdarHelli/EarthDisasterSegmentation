@@ -57,18 +57,18 @@ loss_weights:
   - 0.25
   - 5
 weights:
-  - 1
-  - 2
-  - 6
-  - 3
-  - 8
+  - 0.1
+  - 0.2
+  - 0.6
+  - 0.3
+  - 0.8
 decoder_hidden_size: 512
 semantic_loss_ignore_index: 255
 num_labels: 5
 batch_size: 1
 epochs: 25
-lr: 1.0e-04
-weight_decay: 1.0e-05
+lr: 5.0e-05
+weight_decay: 1.0e-07
 train_path: 
 - "/content/train"
 test_path:

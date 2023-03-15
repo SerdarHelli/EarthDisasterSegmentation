@@ -248,15 +248,20 @@ class TFSegformerMLP(tf.keras.layers.Layer):
     Linear Embedding.
     """
 
-    def __init__(self, config, **kwargs):
+    def __init__(self, config,dropout=0, **kwargs):
         super().__init__(**kwargs)
         decoder_hidden_size=config.decoder_hidden_size
         self.norm=tf.keras.layers.LayerNormalization()
         self.proj = tf.keras.layers.Dense(decoder_hidden_size, name="proj")
+        self.dropout_layer=None
+        if dropout>0:
+            self.dropout_layer=tf.keras.layers.Dropout(dropout)
 
     def call(self, hidden_states: tf.Tensor):
         hidden_states=self.norm(hidden_states)
         hidden_states = self.proj(hidden_states)
+        if self.dropout_layer:
+            hidden_states=self.dropout_layer(hidden_states)
         return hidden_states
 
 
@@ -485,7 +490,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
         for i in range(config.num_encoder_blocks):
             mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
             mlps.append(mlp)
-            unet_mlp = TFSegformerMLP(config, name=f"unet_linear_c.{i}")
+            unet_mlp = TFSegformerMLP(config,dropout=0.25, name=f"unet_linear_c.{i}")
             unet_mlps.append(unet_mlp)
         self.mlps = mlps
         self.unet_mlps = unet_mlps
