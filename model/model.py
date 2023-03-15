@@ -9,6 +9,7 @@ import os
 import datetime
 from utils.utils import instantiate_from_config
 
+from model.layers import AttentionGate
 
 
 class USegFormer(tf.keras.Model):
@@ -58,7 +59,6 @@ class USegFormer(tf.keras.Model):
         layer_names=[layer.name for layer in unet_model.network.layers]
 
         self.unet_layer=unet_model.network.get_layer(layer_names[-1])
-        self.unet_layer.trainable=False
         del unet_model
 
     def build_usegformer(self,):
@@ -66,10 +66,14 @@ class USegFormer(tf.keras.Model):
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         
         local_map,hidden_states=self.unet_layer(input_pre)
-        self.unet_layer.trainable=False
         #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
-        x=tf.keras.layers.Concatenate()([input_post,local_map])
-        output=self.segformer_layer(x,hidden_states)
+        x=self.segformer_layer(input_post,hidden_states)
+        x=AttentionGate(filters=32)(local_map,x)
+        x = tf.keras.layers.Conv2D(32, 3, padding="same", kernel_initializer = 'he_normal')
+        x=tf.keras.layers.BatchNormalization()(x)
+        x=tf.keras.layers.Activation("relu")
+        x = tf.keras.layers.Conv2D(5, 1, padding="same", kernel_initializer = 'he_normal')
+        output=tf.keras.layers.Activation("sigmoid")
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
         return model
 
@@ -339,6 +343,7 @@ class USegFormerSeperated(tf.keras.Model):
         x=tf.keras.layers.Concatenate()([post_image,pre_target])
 
         output=self.segformer_layer(x,hiddens)
+        
         model = tf.keras.Model(inputs=[post_image,pre_target,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], outputs=[output])
         return model
 

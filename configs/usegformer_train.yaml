@@ -57,7 +57,7 @@ loss_weights:
   - 1
   - 5
 weights:
-  - 1
+  - 0.25
   - 2
   - 2
   - 2
