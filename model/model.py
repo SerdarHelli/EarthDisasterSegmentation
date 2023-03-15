@@ -68,6 +68,7 @@ class USegFormer(tf.keras.Model):
         local_map,hidden_states=self.unet_layer(input_pre)
         #x=SPADE(filters=self.shape_input[-1])(input_post,local_map)
         x=self.segformer_layer(input_post,hidden_states)
+        local_map=tf.keras.layers.Resizing(tf.shape(x)[1],tf.shape(x)[2])(local_map)
         x=AttentionGate(filters=32)(local_map,x)
         x = tf.keras.layers.Conv2D(32, 3, padding="same", kernel_initializer = 'he_normal')
         x=tf.keras.layers.BatchNormalization()(x)
