@@ -552,6 +552,7 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
         self.segformer = TFSegformerMainLayer(config, name="segformer")
         self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
         self.config=config
+        self.final_activation=tf.keras.layers.Activation("sigmoid")
 
     def call(
         self,
@@ -585,6 +586,6 @@ class TFSegformerForSemanticSegmentation(tf.keras.Model):
                 output = (logits,) + outputs[2:]
             return output
 
-        return logits
+        return self.final_activation(logits)
     
 
