@@ -247,8 +247,8 @@ class USegFormer(tf.keras.Model):
 
     
 
-        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=[0.1,0.1,0.3,0.2,2])*self.loss_weights[0]
-        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
 
         iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
         total_dice=(2*iou_score)/(1+iou_score)

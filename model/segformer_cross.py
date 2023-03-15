@@ -578,7 +578,7 @@ class TFCrossSegformerForSemanticSegmentation(tf.keras.Model):
         super().__init__( **kwargs)
         self.segformer = TFSegformerMainLayer(config, name="segformer")
         self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
-        self.final_activation = tf.keras.layers.Activation("softmax")
+        self.final_activation = tf.keras.layers.Activation("sigmoid")
         self.config=config
 
     def call(
