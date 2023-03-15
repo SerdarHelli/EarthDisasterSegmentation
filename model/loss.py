@@ -38,23 +38,38 @@ class FocalLoss(tf.keras.losses.Loss):
         pt = (1 - y_true) * (1 - y_pred) + y_true * y_pred
         return K.mean((-(1. - pt) ** self.gamma * K.log(pt)))
 
+
+
 class DiceLoss(tf.keras.losses.Loss):
  
     def __init__(self,weight=None,**kwargs):
         super().__init__(**kwargs)
-        self.epsilon=K.epsilon()
+        self.smooth=1
 
 
     def call(self, y_true, y_pred):
 
         intersection = K.sum(K.abs(y_true * y_pred), axis=[1])
         union = K.sum(y_true, axis=[1]) + K.sum(y_pred, axis=[1])
-        dice= 1- ((2. * intersection + self.epsilon) / (union + self.epsilon))
+        dice= 1- ((2. * intersection + self.smooth) / (union + self.smooth))
 
         dice=K.mean(dice)
         return dice
     
-    
+class DiceFocalLoss(tf.keras.losses.Loss):
+ 
+    def __init__(self,weights={'dice':0.5,'focal':5},**kwargs):
+        super().__init__(**kwargs)
+        self.focal_loss=FocalLoss()
+        self.dice_loss=DiceLoss()
+        self.weights=weights
+
+    def call(self, y_true, y_pred):
+        focal_loss=self.focal_loss(y_true, y_pred)*self.weights['focal']
+        dice_loss=self.dice_loss(y_true, y_pred)*self.weights['dice']
+        loss=focal_loss+dice_loss
+        return loss
+  
 class ComboLoss(tf.keras.losses.Loss):
     """
     ALPHA = 0.3    # < 0.5 penalises FP more, > 0.5 penalises FN more
