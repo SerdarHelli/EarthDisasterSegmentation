@@ -22,7 +22,6 @@ train_path=conf.train_path
 test_path=conf.test_path
 checkpoint_path=conf.checkpoint_path
 img_size=conf.input_shape[1]
-unet_config=OmegaConf.load(conf.unet_config_path)
 train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
 eval_Data=EvalGen(test_path)
 

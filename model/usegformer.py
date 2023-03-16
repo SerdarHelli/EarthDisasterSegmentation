@@ -11,6 +11,7 @@ import os
 import datetime
 from utils.utils import instantiate_from_config
 from model.unet import *
+import tensorflow.keras.backend as K
 
 class TFSegformerDropPath(tf.keras.layers.Layer):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
@@ -51,7 +52,7 @@ class TFSegformerOverlapPatchEmbeddings(tf.keras.layers.Layer):
         hidden_dim = shape[3]
         # (batch_size, height, width, num_channels) -> (batch_size, height*width, num_channels)
         # this can be fed to a Transformer layer
-        embeddings = tf.reshape(embeddings, (-1, height * width, hidden_dim))
+        embeddings = tf.reshape(embeddings, (shape[0], height * width, hidden_dim))
         embeddings = self.layer_norm(embeddings)
         return embeddings,height, width
 
@@ -340,11 +341,10 @@ class TFSegformerLayer(tf.keras.layers.Layer):
         mlp_output = self.drop_path(mlp_output, training=training)
         layer_output = mlp_output + hidden_states
 
-        outputs = (layer_output,) + outputs
 
-        outputs=tf.reshape(outputs,(tf.shape(outputs)[0],height,width,tf.shape(outputs)[-1]))
+        layer_output=tf.reshape(layer_output,(tf.shape(hidden_states)[0],height,width,tf.shape(hidden_states)[-1]))
 
-        return outputs
+        return layer_output
     
     
 class ConvBlock(tf.keras.layers.Layer):
@@ -413,7 +413,7 @@ def build_usegformernet_model(
     strides,
     num_res_blocks=2,
     activation_fn=keras.activations.swish,
-    first_conv_channels=64,
+    first_conv_channels=16,
 ):
 
 
@@ -446,10 +446,10 @@ def build_usegformernet_model(
                         hidden_size=widths[i],
                         num_attention_heads=num_attention_heads[i],
                         drop_path=0.1,
-                        patch_size=(len(widths)-i),
+                        patch_size=(len(widths)-i)*4,
                         stride=strides[i],
                         sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=2,
+                        mlp_ratio=1,
                         attention_probs_dropout_prob=0.1,
                     )(x,context)
 
@@ -472,7 +472,7 @@ def build_usegformernet_model(
                         patch_size=4,
                         stride=strides[-1],
                         sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=2,
+                        mlp_ratio=1,
                         attention_probs_dropout_prob=0.1,
                     )(x,context)
 
@@ -496,7 +496,7 @@ def build_usegformernet_model(
                         patch_size=(len(widths)-i)*4,
                         stride=strides[i],
                         sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=2,
+                        mlp_ratio=1,
                         attention_probs_dropout_prob=0.1,
                     )(x,context)
 
@@ -510,7 +510,7 @@ def build_usegformernet_model(
     x = layers.Conv2D(5, (3, 3), padding="same")(x)
     x = tf.keras.layers.Activation("sigmoid")(x)
 
-    return keras.Model([image_input, context], x, name="spatial_2d_condition_unet")
+    return keras.Model([image_input, context], x, name="usegformer_net")
 
 class USegFormer(tf.keras.Model):
     def __init__(self, config,checkpoint_path,
@@ -524,7 +524,7 @@ class USegFormer(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
-        self.unet_layer=None
+        #self.unet_layer=None
         #self.load_unetmodel(unet_config,unet_checkpoint_path)
         #self.segformer_layer = TFSegformerForSemanticSegmentation(config)
         self.network=instantiate_from_config(config.usegformer)
@@ -551,25 +551,25 @@ class USegFormer(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
     
-    def load_unetmodel(self,unet_config,unet_checkpoint_path):
-        unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
-        unet_model.compile()
-        print("Loading Unet Model")
-        unet_model.load(usage="eval")
-        layer_names=[layer.name for layer in unet_model.network.layers]
+    # def load_unetmodel(self,unet_config,unet_checkpoint_path):
+    #     unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
+    #     unet_model.compile()
+    #     print("Loading Unet Model")
+    #     unet_model.load(usage="eval")
+    #     layer_names=[layer.name for layer in unet_model.network.layers]
 
-        self.unet_layer=unet_model.network.get_layer(layer_names[-1])
-        del unet_model
+    #     self.unet_layer=unet_model.network.get_layer(layer_names[-1])
+    #     del unet_model
 
-    def build_usegformer(self,):
-        input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
-        input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
+    # def build_usegformer(self,):
+    #     input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
+    #     input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         
-        local_map,hidden_states=self.unet_layer(input_pre)
-        concatted=tf.keras.layers.Concatenate()([input_post,local_map])
-        output=self.segformer_layer(concatted,hidden_states)
-        model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
-        return model
+    #     local_map,hidden_states=self.unet_layer(input_pre)
+    #     concatted=tf.keras.layers.Concatenate()([input_post,local_map])
+    #     output=self.segformer_layer(concatted,hidden_states)
+    #     model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
+    #     return model
 
 
     def compile(self,**kwargs):
