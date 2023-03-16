@@ -343,15 +343,6 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
         return x
     
 
-
-
-
-
-
-
-
-
-
 def build_uspatialcondition_model(
     input_shape,
     context_shape,
@@ -366,21 +357,50 @@ def build_uspatialcondition_model(
     first_conv_channels=16,
 ):
     
-    hiddens_3= tf.keras.Input(shape=(16,16,widths[-1]),name="hiddens0")
-    hiddens_2= tf.keras.Input(shape=(32,32,widths[-2]),name="hiddens1")
-    hiddens_1= tf.keras.Input(shape=(64,64,widths[-3]),name="hiddens2")
-    hiddens_0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddens3")
-    hiddens=[hiddens_0,hiddens_1,hiddens_2,hiddens_3]
+    hiddens_pre3= tf.keras.Input(shape=(16,16,widths[-1]),name="hiddenspre0")
+    hiddens_pre2= tf.keras.Input(shape=(32,32,widths[-2]),name="hiddenspre1")
+    hiddens_pre1= tf.keras.Input(shape=(64,64,widths[-3]),name="hiddenspre2")
+    hiddens_pre0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspre3")
+    hiddenspre=[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3]
 
-    image_input = layers.Input(
-        shape=input_shape, name="image_post"
-    )
-    image_input_pre= layers.Input(
-        shape=context_shape, name="image_pre"
+    hiddens_post3= tf.keras.Input(shape=(16,16,widths[-1]),name="hiddenspost0")
+    hiddens_post2= tf.keras.Input(shape=(32,32,widths[-2]),name="hiddenspost1")
+    hiddens_post1= tf.keras.Input(shape=(64,64,widths[-3]),name="hiddenspost2")
+    hiddens_post0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspost3")
+    hiddenspost=[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]
+
+    pre_mask = layers.Input(
+        shape=context_shape, name="pre_mask"
     )
 
-    output=UnetSpatial_AutoEncoder(hidden_sizes=widths,unet_num_res_blocks=num_res_blocks,unet_num_transformer=8,unet_num_heads=8,drop_path_rate=0.1,depths=None,)(image_input,image_input_pre,hiddens)
-    return keras.Model([image_input, image_input_pre,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], output, name="uspatial_net")
+    hiddens=[]
+    for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
+        x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
+        for _ in range(num_res_blocks):
+            x=ResBlock(widths[-idx])(x)
+        
+        x=SpatialTransformer(widths[-idx]//4)([x,pre_mask])
+        x=ReScaler(orig_shape=[1,128,128,widths[-4]])(x)
+        hiddens.append(x)
+
+    x= tf.keras.layers.Concatenate()(hiddens)
+    for _ in range(num_res_blocks):
+            x=ResBlock(widths[1])(x)
+
+    x = UpSample(widths[1],norm="batchnorm")(x)
+
+    for _ in range(num_res_blocks):
+            x=ResBlock(widths[0])(x)
+
+    x = UpSample(widths[0],norm="batchnorm")(x)
+    x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
+    x=tf.keras.layers.BatchNormalization()(x)
+    x=tf.keras.layers.Activation("relu")
+
+    x = tf.keras.layers.Conv2D(5,1, padding="same", )
+    output=tf.keras.layers.Activation("softmax")
+
+    return keras.Model([pre_mask,[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3],[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]], output, name="uspatial_net")
 
 def build_usegformernet_model(
     input_shape,
@@ -696,7 +716,7 @@ class USegFormer(tf.keras.Model):
             y_local,hiddens=self.unet_layer(x_pre,training=False)
             xx_pre=tf.concat([x_pre,y_local],axis=-1)
 
-            y_multilabel_resized = self.network([x_post,x_pre,hiddens], training=True)
+            y_multilabel_resized = self.network([x_post,xx_pre,hiddens], training=True)
             #upsample_resolution = tf.shape(multilabel_map)
      
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")

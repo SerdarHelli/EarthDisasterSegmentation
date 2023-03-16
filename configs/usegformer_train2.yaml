@@ -38,7 +38,7 @@ usegformer :
     context_shape:
       - 512
       - 512
-      - 3
+      - 5
     widths:
       - 16
       - 32
