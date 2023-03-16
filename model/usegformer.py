@@ -403,8 +403,9 @@ def build_uspatialcondition_model(
 
     hiddens=[]
     for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
+        hidden_pre=SqueezeAndExcite2D(filters=widths[-idx])(hidden_pre)
+        hidden_post=SqueezeAndExcite2D(filters=widths[-idx])(hidden_post)
         x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
-        x=SqueezeAndExcite2D(filters=widths[-idx])(x)
         for _ in range(num_res_blocks):
             x=ConvBlock(widths[-idx])(x)
         
