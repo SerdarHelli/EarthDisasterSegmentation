@@ -342,7 +342,32 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
         x=self.final_activation(x)
         return x
     
+class TFSegformerMixFFN(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int = None,
+        out_features: int = None,
+        **kwargs
+    ):
+        super().__init__(**kwargs)
+        out_features = out_features or in_features
+        self.dense1 = tf.keras.layers.Dense(hidden_features, name="dense1")
+        self.depthwise_convolution = tf.keras.layers.Conv2D(
+            filters=in_features, kernel_size=3, strides=1, padding="same", groups=in_features, name="dwconv"
+        )
 
+        self.intermediate_act_fn = Gelu()
+
+        self.dense2 = tf.keras.layers.Dense(out_features, name="dense2")
+
+    def call(self, hidden_states: tf.Tensor,  training: bool = True) :
+        hidden_states = self.dense1(hidden_states)
+        hidden_states = self.depthwise_convolution(hidden_states,)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+        hidden_states = self.dense2(hidden_states)
+        return hidden_states
+    
 def build_uspatialcondition_model(
     input_shape,
     context_shape,
@@ -372,12 +397,16 @@ def build_uspatialcondition_model(
     pre_mask = layers.Input(
         shape=context_shape, name="pre_mask"
     )
+    pre_mask = ConvBlock(widths[0])(pre_mask)
+    pre_mask = ConvBlock(widths[0])(pre_mask)
+
 
     hiddens=[]
     for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
         x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
+        x=SqueezeAndExcite2D(filters=widths[-idx])(x)
         for _ in range(num_res_blocks):
-            x=ResBlock(widths[-idx])(x)
+            x=ConvBlock(widths[-idx])(x)
         
         x=SpatialTransformer(widths[-idx]//4)([x,pre_mask])
         x=ReScaler(orig_shape=[1,128,128,widths[-4]])(x)
@@ -385,14 +414,15 @@ def build_uspatialcondition_model(
 
     x= tf.keras.layers.Concatenate()(hiddens)
     for _ in range(num_res_blocks):
-            x=ResBlock(widths[1])(x)
+            x=ConvBlock(widths[1])(x)
 
     x = UpSample(widths[1],norm="batchnorm")(x)
 
     for _ in range(num_res_blocks):
-            x=ResBlock(widths[0])(x)
+            x=ConvBlock(widths[0])(x)
 
     x = UpSample(widths[0],norm="batchnorm")(x)
+    x=ConvBlock(widths[0])(x)
     x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
     x=tf.keras.layers.BatchNormalization()(x)
     x=tf.keras.layers.Activation("relu")(x)
@@ -512,7 +542,7 @@ def build_usegformernet_model(
     # End block
     x=getNorm("batchnorm")(x)
     x = activation_fn(x)
-    x = layers.Conv2D(5, (3, 3), padding="same")(x)
+    x = layers.Conv2D(5, (1, 1), padding="same")(x)
     x = tf.keras.layers.Activation("softmax")(x)
 
     return keras.Model([image_input, image_input_pre], x, name="usegformer_net")
@@ -591,7 +621,7 @@ class USegFormer(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceFocalLoss()
         self.loss_2=WeightedCrossentropy(weights = {0: 1,1: 1})
-        self.loss_2_weighted=WeightedCrossentropy(weights = {0: 0.1,1: 2.})
+        self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 10})
 
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
         self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
@@ -716,7 +746,7 @@ class USegFormer(tf.keras.Model):
             y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
             y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
 
-            concatted=tf.concat([x_post,y_local_pre,y_local_post])
+            concatted=tf.concat([x_post,y_local_pre],axis=-1)
 
             y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
             #upsample_resolution = tf.shape(multilabel_map)
@@ -756,7 +786,7 @@ class USegFormer(tf.keras.Model):
         y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
         y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
         
-        concatted=tf.concat([x_post,y_local_pre,y_local_post])
+        concatted=tf.concat([x_post,y_local_pre,y_local_post],axis=-1)
         y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
         #upsample_resolution = tf.shape(multilabel_map)
   
