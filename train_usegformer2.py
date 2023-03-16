@@ -25,7 +25,7 @@ img_size=conf.input_shape[1]
 train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
 eval_Data=EvalGen(test_path)
 
-model=USegFormer(conf,checkpoint_path=checkpoint_path)
+model=USegFormer(conf,checkpoint_path=checkpoint_path,)
 
 model.compile()
 returned_epoch=model.load()

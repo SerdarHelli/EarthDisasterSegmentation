@@ -27,7 +27,7 @@ weights:
   - 2
   - 1
 usegformer :
-  target: model.usegformer.build_usegformernet_model
+  target: model.usegformer.build_uspatialcondition_model
   params:
     input_shape:
       - 512
@@ -40,8 +40,8 @@ usegformer :
     widths:
       - 16
       - 32
+      - 32
       - 64
-      - 128
       - 320
       - 512
     num_attention_heads:
@@ -65,6 +65,13 @@ usegformer :
       - 4
       - 2
       - 1
+    patch_sizes:
+      - 16
+      - 8
+      - 8
+      - 8
+      - 4
+      - 4
     has_attention:
       - False
       - False

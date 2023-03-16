@@ -304,6 +304,7 @@ class USegFormerSeperated(tf.keras.Model):
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
         self.class_weights=config.weights
+        
     def load_unetmodel(self,unet_config,unet_checkpoint_path):
         unet_model=UNetModel(unet_config,checkpoint_path=unet_checkpoint_path)
         unet_model.compile()

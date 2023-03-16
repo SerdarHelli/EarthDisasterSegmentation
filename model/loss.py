@@ -151,23 +151,82 @@ class GeneralizedFocalTverskyLoss(tf.keras.losses.Loss):
         FocalTversky = K.mean(K.pow((1 - Tversky), 1/self.gamma))
         return FocalTversky
 
-class WeightedCategoricalCrossentropy(tf.keras.losses.Loss):
-    def __init__(self,weights,from_logits=False,  **kwargs):
+class WeightedCrossentropy(tf.keras.losses.Loss):
+    '''
+    Return a function for calculating weighted binary cross entropy
+    It should be used for multi-hot encoded labels
+
+    # Example
+    y_true = tf.convert_to_tensor([1, 0, 0, 0, 0, 0], dtype=tf.int64)
+    y_pred = tf.convert_to_tensor([0.6, 0.1, 0.1, 0.9, 0.1, 0.], dtype=tf.float32)
+    weights = {
+        0: 1.,
+        1: 2.
+    }
+    # with weights
+    loss_fn = get_loss_for_multilabels(weights=weights, from_logits=False)
+    loss = loss_fn(y_true, y_pred)
+    print(loss)
+    # tf.Tensor(0.6067193, shape=(), dtype=float32)
+
+    # without weights
+    loss_fn = get_loss_for_multilabels()
+    loss = loss_fn(y_true, y_pred)
+    print(loss)
+    # tf.Tensor(0.52158177, shape=(), dtype=float32)
+
+    # Another example
+    y_true = tf.convert_to_tensor([[0., 1.], [0., 0.]], dtype=tf.float32)
+    y_pred = tf.convert_to_tensor([[0.6, 0.4], [0.4, 0.6]], dtype=tf.float32)
+    weights = {
+        0: 1.,
+        1: 2.
+    }
+    # with weights
+    loss_fn = get_loss_for_multilabels(weights=weights, from_logits=False)
+    loss = loss_fn(y_true, y_pred)
+    print(loss)
+    # tf.Tensor(1.0439969, shape=(), dtype=float32)
+
+    # without weights
+    loss_fn = get_loss_for_multilabels()
+    loss = loss_fn(y_true, y_pred)
+    print(loss)
+    # tf.Tensor(0.81492424, shape=(), dtype=float32)
+
+    @param weights A dict setting weights for 0 and 1 label. e.g.
+        {
+            0: 1.
+            1: 8.
+        }
+        For this case, we want to emphasise those true (1) label, 
+        because we have many false (0) label. e.g. 
+            [
+                [0 1 0 0 0 0 0 0 0 1]
+                [0 0 0 0 1 0 0 0 0 0]
+                [0 0 0 0 1 0 0 0 0 0]
+            ]
+
+        
+
+    @param from_logits If False, we apply sigmoid to each logit
+    @return A function to calcualte (weighted) binary cross entropy
+    '''
+    def __init__(self,weights:dict,from_logits:bool = False,  **kwargs):
         super().__init__(**kwargs)
         self.weights=weights
         self.epsilon=K.epsilon()
         self.from_logits=from_logits
         
     def call(self,y_true, y_pred,) :
-        if self.from_logits:
-           y_pred = tf.keras.activations.softmax(y_pred, axis=-1)
-        	#y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
-        # clip to prevent NaN's and Inf's
-        y_pred = K.clip(y_pred, K.epsilon(), 1 - K.epsilon())
-        # calc
-        loss = y_true * K.log(y_pred) * self.weights
-        loss = -K.sum(loss, -1)
-        return K.mean(loss)
+        tf_y_true = tf.cast(y_true, dtype=y_pred.dtype)
+        tf_y_pred = tf.cast(y_pred, dtype=y_pred.dtype)
+
+        weights_v = tf.where(tf.equal(tf_y_true, 1), self.weights[1], self.weights[0])
+        weights_v = tf.cast(weights_v, dtype=y_pred.dtype)
+        ce = K.binary_crossentropy(tf_y_true, tf_y_pred, from_logits=self.from_logits)
+        loss = K.mean(tf.multiply(ce, weights_v))
+        return loss
 
 class GeneralizedDice(tf.keras.losses.Loss):
     def __init__(self, smooth=1,**kwargs):
