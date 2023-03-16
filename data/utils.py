@@ -169,7 +169,7 @@ def save_image(polygons, output_path):
     
 def get_encoded(img):
   mask = np.zeros(( *img.shape[:2],5))
-  for i in range(0, 4):
+  for i in range(0, 5):
     mask[ img[:, :] == i,i ] = 1
   return mask
 
