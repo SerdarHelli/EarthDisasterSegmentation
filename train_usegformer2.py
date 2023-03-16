@@ -15,6 +15,7 @@ args = vars(parser.parse_args())
 
 conf = OmegaConf.load(args["config_path"])
 tf.keras.utils.set_random_seed(conf.seed)
+unet_config=OmegaConf.load(conf.unet_config_path)
 
 batch_size=conf.batch_size
 epochs=conf.epochs
@@ -25,7 +26,7 @@ img_size=conf.input_shape[1]
 train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
 eval_Data=EvalGen(test_path)
 
-model=USegFormer(conf,checkpoint_path=checkpoint_path,)
+model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
 
 model.compile()
 returned_epoch=model.load()

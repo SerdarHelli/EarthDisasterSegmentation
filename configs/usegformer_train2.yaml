@@ -26,6 +26,8 @@ weights:
   - 2
   - 2
   - 1
+unet_checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans"
+unet_config_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans/config.yaml"
 usegformer :
   target: model.usegformer.build_uspatialcondition_model
   params:
@@ -38,11 +40,11 @@ usegformer :
       - 512
       - 3
     widths:
-      - 16
-      - 32
       - 32
       - 64
+      - 128
       - 320
+      - 512
       - 512
     num_attention_heads:
       - 1

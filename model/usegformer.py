@@ -232,6 +232,147 @@ def getNorm(norm_str,eps=1e-6):
         raise("Invalid Normalization ")
     return x
 
+
+
+class ResBlock2(tf.keras.layers.Layer):
+    def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
+        self.drop_path_rate=drop_path_rate
+    def build(self, input_shape):
+        input_filter = input_shape[-1]
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.learned_skip = False
+        self.norm1 = getNorm(self.norm_str)
+        self.norm2 = getNorm(self.norm_str)
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
+
+        if self.filters != input_filter:
+            self.learned_skip = True
+            self.conv_3 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+            self.norm3 = getNorm(self.norm_str)
+        
+
+    def call(self, input_tensor: tf.Tensor):
+        input_tensor,_=input_tensor
+        x = self.norm1(input_tensor)
+        x = self.conv_1(tf.nn.relu(x))
+        x = self.norm2(x)
+        x = self.conv_2(tf.nn.relu(x))
+        skip = (
+            self.conv_3(tf.nn.relu(self.norm3(input_tensor)))
+            if self.learned_skip
+            else input_tensor
+        )
+        output = skip + x
+        output=self.droput(output)
+        return output
+
+
+
+
+
+class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
+
+    """
+        U-Net AutoEncoder:
+        All blocks are resblock. 
+        
+        Between encoder and decoder , there is vit block.
+        
+        Paper Ref:
+        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
+        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
+    """
+    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
+        super().__init__(**kwargs)
+        self.hidden_sizes = hidden_sizes
+        self.unet_num_res_blocks = unet_num_res_blocks
+        self.unet_num_transformer=unet_num_transformer
+        self.unet_num_heads=unet_num_heads
+        self.unet_hidden_sizes=hidden_sizes
+        self.norm="batchnorm"
+        self.drop_path_rate=drop_path_rate
+
+    def build(self,input_shape):
+        self.final_activation = tf.keras.layers.Activation("softmax")
+
+        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//2, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.encoder_blocks=[]
+        self.concat_idx=[]
+        self.decoder_blocks=[]
+        self.hidden_states_idx=[]
+        idx_x=0
+        for i,hidden_size in enumerate(self.unet_hidden_sizes):
+                for _ in range(self.unet_num_res_blocks):
+                    idx_x=idx_x+1
+                    x = ResBlock2(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
+                    self.encoder_blocks.append(x)
+                idx_x=idx_x+1
+                x=SpatialTransformer(hidden_size)
+                self.encoder_blocks.append(x)
+
+                if hidden_size != self.unet_hidden_sizes[-1]:
+                  self.concat_idx.append(idx_x-1)
+                  idx_x=idx_x+1
+                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
+                  self.encoder_blocks.append(x)
+
+        self.middle_block=VIT(filter=self.unet_hidden_sizes[-1],embed_dim=self.unet_hidden_sizes[-1], num_transformer=self.unet_num_transformer,num_heads=self.unet_num_heads)
+
+
+        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
+                for _ in range(self.unet_num_res_blocks):
+                    x = ResBlock2(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
+                    self.decoder_blocks.append(x)
+                idx_x=idx_x+1
+                x=SpatialTransformer(hidden_size)
+                self.decoder_blocks.append(x)
+                if i!=0:
+
+                   x = UpSample(hidden_size,norm=self.norm)
+                   self.decoder_blocks.append(x)
+
+        self.norm = getNorm(self.norm)
+        self.final_layer=tf.keras.layers.Conv2D(1, kernel_size=1,padding="same",name="local_map", kernel_initializer = 'he_normal')
+
+    def call(self, input_tensor: tf.Tensor,context_tensor:tf.Tensor,hidden_sizes):
+        x=self.conv_first(input_tensor)
+        skips=[x]
+        curr=0
+        for idx,block in enumerate(self.encoder_blocks):
+            if idx in self.concat_idx[2:]:
+                x = tf.concat([x, hidden_sizes[curr]], axis=-1)
+                curr=curr+1
+            x=block([x,context_tensor])
+
+            skips.append(x)
+
+        x=self.middle_block(x)
+        x = tf.concat([x, hidden_sizes[curr]], axis=-1)
+
+        for idx,block in enumerate(self.decoder_blocks):
+            x=block([x,context_tensor])
+            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
+                  x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
+
+        x=tf.nn.relu(self.norm(x))
+        x=self.final_layer(x)
+        x=self.final_activation(x)
+        return x
+    
+
+
+
+
+
+
+
+
+
+
 def build_uspatialcondition_model(
     input_shape,
     context_shape,
@@ -252,7 +393,6 @@ def build_uspatialcondition_model(
     hiddens_3= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddens3")
     hiddens=[hiddens_3,hiddens_2,hiddens_1,hiddens_0,]
 
-
     image_input = layers.Input(
         shape=input_shape, name="image_post"
     )
@@ -260,79 +400,8 @@ def build_uspatialcondition_model(
         shape=context_shape, name="image_pre"
     )
 
-    x = layers.Conv2D(
-        first_conv_channels,
-        kernel_size=3,
-        padding="same",
-    )(image_input)
-
-    context = layers.Conv2D(
-        first_conv_channels,
-        kernel_size=1,
-        padding="same",
-    )(image_input_pre)
-
-
-    skips = [x]
-
-    # DownBlock
-    for i in range(len(widths)):
-        for _ in range(num_res_blocks):
-            x = ConvBlock(
-                widths[i]
-            )(x)
-            if has_attention[i]:
-
-                  x=SpatialTransformer(
-                        widths[i],
-                    )([x,context])
-
-
-            skips.append(x)
-
-        if widths[i] != widths[-1]:
-            x = DownSample(widths[i])(x)
-            skips.append(x)
-
-    for idx,skip in enumerate(skips):
-        if idx>1:
-            skips[idx] = layers.Concatenate(axis=-1)([hiddens[idx-2], skip])
-
-    # MiddleBlock
-    x = ConvBlock(widths[-1] )(
-        x, 
-    )
-    x=SpatialTransformer(
-        widths[-1],
-    )([x,context])
-
-
-    x = ConvBlock(widths[-1])(
-        x,
-    )
-    # UpBlock
-    for i in reversed(range(len(widths))):
-        for _ in range(num_res_blocks + 1):
-            x = layers.Concatenate(axis=-1)([x, skips.pop()])
-            x = ConvBlock(
-                widths[i]
-            )(x)
-            if has_attention[i]:
-                  x=SpatialTransformer(
-                        widths[i],
-                    )([x,context])
-
-
-        if i != 0:
-            x = UpSample(widths[i])(x)
-
-    # End block
-    x=getNorm("batchnorm")(x)
-    x = activation_fn(x)
-    x = layers.Conv2D(5, (3, 3), padding="same")(x)
-    x = tf.keras.layers.Activation("softmax")(x)
-
-    return keras.Model([image_input, image_input_pre,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], x, name="uspatial_net")
+    output=UnetSpatial_AutoEncoder(hidden_sizes=widths,unet_num_res_blocks=num_res_blocks,unet_num_transformer=8,unet_num_heads=8,drop_path_rate=0.1,depths=None,)(image_input,image_input_pre,hiddens)
+    return keras.Model([image_input, image_input_pre,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], output, name="uspatial_net")
 
 def build_usegformernet_model(
     input_shape,
