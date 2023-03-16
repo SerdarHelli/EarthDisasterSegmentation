@@ -19,13 +19,13 @@ checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer"
 step_warmup: 4000
 loss_weights:
   - 1
-  - 5
+  - 11
 weights:
-  - 0.25
-  - 2
-  - 2
-  - 2
-  - 1
+  - 0.1
+  - 0.1
+  - 0.3
+  - 0.3
+  - 0.2
 unet_checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans"
 unet_config_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans/config.yaml"
 usegformer :
@@ -38,7 +38,7 @@ usegformer :
     context_shape:
       - 512
       - 512
-      - 5
+      - 1
     widths:
       - 16
       - 32

@@ -394,28 +394,39 @@ def build_uspatialcondition_model(
     hiddens_post0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspost3")
     hiddenspost=[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]
 
-    pre_mask = layers.Input(
+    post_input = layers.Input(
+        shape=input_shape, name="post_image"
+    )
+    pre_mask_input = layers.Input(
         shape=context_shape, name="pre_mask"
     )
-    pre_mask = ConvBlock(widths[0])(pre_mask)
-    pre_mask = ConvBlock(widths[0])(pre_mask)
-
+    context=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(post_input)
+    context = ConvSpadeBlock(widths[0])([context,pre_mask_input])
+    context = ConvSpadeBlock(widths[0])([context,pre_mask_input])
+    context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
+    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
+    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
+    context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
+    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
 
     hiddens=[]
     for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
-        hidden_pre=SqueezeAndExcite2D(filters=widths[-idx])(hidden_pre)
-        hidden_post=SqueezeAndExcite2D(filters=widths[-idx])(hidden_post)
+
+        hidden_pre=SqueezeAndExcite2D(filters=widths[2:][idx])(hidden_pre)
+        hidden_post=SqueezeAndExcite2D(filters=widths[2:][idx])(hidden_post)
         x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
         for _ in range(num_res_blocks):
             x=ConvBlock(widths[-idx])(x)
         
-        x=SpatialTransformer(widths[-idx]//4)([x,pre_mask])
+        x=SpatialTransformer(widths[-idx]//4)([x,context])
         x=ReScaler(orig_shape=[1,128,128,widths[-4]])(x)
         hiddens.append(x)
 
     x= tf.keras.layers.Concatenate()(hiddens)
     for _ in range(num_res_blocks):
             x=ConvBlock(widths[1])(x)
+
+    x=tf.keras.layers.Multiply()([x,context])
 
     x = UpSample(widths[1],norm="batchnorm")(x)
 
@@ -431,7 +442,7 @@ def build_uspatialcondition_model(
     x = tf.keras.layers.Conv2D(5,1, padding="same", )(x)
     output=tf.keras.layers.Activation("softmax")(x)
 
-    return keras.Model([pre_mask,hiddenspre,hiddenspost], output, name="uspatial_net")
+    return keras.Model([post_input,pre_mask_input,hiddenspre,hiddenspost], output, name="uspatial_net")
 
 def build_usegformernet_model(
     input_shape,
@@ -570,13 +581,12 @@ class USegFormer(tf.keras.Model):
         self.loss_weights=config.loss_weights
         self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="Crossentropy_Loss")
-        self.iou_score_tracker= tf.keras.metrics.Mean(name="Meaniou")
         self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
         self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
         self.f1_minordamage_tracker  = tf.keras.metrics.Mean(name="f1_minordamage")
         self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
-        self.f1_unclassified_tracker = tf.keras.metrics.Mean(name="f1_unclassified")
+        self.f1_background_tracker = tf.keras.metrics.Mean(name="f1_background")
         self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
         self.class_weights=config.weights
 
@@ -622,7 +632,8 @@ class USegFormer(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceFocalLoss()
         self.loss_2=WeightedCrossentropy(weights = {0: 1,1: 1})
-        self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 10})
+
+        self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 4})
 
         self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
         self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
@@ -636,13 +647,12 @@ class USegFormer(tf.keras.Model):
         return [
             self.loss_1_tracker,
             self.loss_2_tracker,
-            self.iou_score_tracker,
             self.f1_total_tracker,
             self.f1_nodamage_tracker,    
             self.f1_minordamage_tracker ,
             self.f1_majordamage_tracker ,
             self.f1_destroyed_tracker   ,
-            self.f1_unclassified_tracker,
+            self.f1_background_tracker,
             self.iou_score2_tracker,
         ]
     
@@ -650,48 +660,42 @@ class USegFormer(tf.keras.Model):
 
     def dice_classes_score(self,y_true, y_pred):
         dices={}
-        d1=self.iou_score1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d2=self.iou_score2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d3=self.iou_score3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d4=self.iou_score4(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d5=self.iou_score5(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        d0=self.iou_score1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.iou_score2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.iou_score3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.iou_score4(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.iou_score5(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
         dices["nodamage"]=(2*d1)/(1+d1)
         dices["minordamage"]=(2*d2)/(1+d2)
         dices["majordamage"]=(2*d3)/(1+d3)
         dices["destroyed"]=(2*d4)/(1+d4)
-        dices["unclassified"]=(2*d5)/(1+d5)
-        dices["total_dice"]= (dices["nodamage"]+dices["minordamage"]+dices["majordamage"]+dices["unclassified"])/5
+        dices["background"]=(2*d0)/(1+d0)
+        dices["total_dice"]= 4/((dices["nodamage"]+1e-6)**-1+(dices["minordamage"]+1e-6)**-1+(dices["majordamage"]+1e-6)**-1+(dices["destroyed"]+1e-6)**-1)
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
-        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d5=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
         if weights:
-            d1=d1*weights[0]
-            d2=d2*weights[1]
-            d3=d3*weights[2]
-            d4=d4*weights[3]
-            d5=d5*weights[4]
-        loss=(d1+d2+d3+d4+d5)/5
+            d0=d0*weights[0]
+            d1=d1*weights[1]
+            d2=d2*weights[2]
+            d3=d3*weights[3]
+            d4=d4*weights[4]
+        loss=(d1+d2+d3+d4+d0)/5
         return loss
 
-    def loss2_full_compute(self,y_true, y_pred,weights=None):
-        d1=self.loss_2(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d2=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d3=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d4=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d5=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
-        if weights:
-            d1=d1*weights[0]
-            d2=d2*weights[1]
-            d3=d3*weights[2]
-            d4=d4*weights[3]
-            d5=d5*weights[4]
-        loss=(d1+d2+d3+d4+d5)/5
+    def loss2_full_compute(self,y_true, y_pred):
+        d0=self.loss_2(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        loss=(d1+d2+d3+d4+d0)/5
         return loss
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
@@ -747,34 +751,30 @@ class USegFormer(tf.keras.Model):
             y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
             y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
 
-            concatted=tf.concat([x_post,y_local_pre],axis=-1)
 
-            y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
+            y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre,hiddens_post], training=True)
             #upsample_resolution = tf.shape(multilabel_map)
      
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
             loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
+            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        iou_score=self.iou_score(K.flatten(multilabel_map[:,:,:,:4]),K.flatten(y_multilabel_resized[:,:,:,:4]))
-        total_dice=(2*iou_score)/(1+iou_score)
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
-        self.iou_score_tracker.update_state(iou_score)
-        self.f1_total_tracker.update_state(total_dice)   
+        self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
         self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
-        self.f1_unclassified_tracker.update_state(dices["unclassified"])
-        self.iou_score2_tracker.update_state(K.flatten(multilabel_map[:,:,:,:4]),K.flatten(y_multilabel_resized[:,:,:,:4]))
+        self.f1_background_tracker.update_state(dices["background"])
+        self.iou_score2_tracker.update_state(K.flatten(multilabel_map[:,:,:,1:]),K.flatten(y_multilabel_resized[:,:,:,1:]))
 
         results = {m.name: m.result() for m in self.metrics}
         return results
@@ -787,8 +787,7 @@ class USegFormer(tf.keras.Model):
         y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
         y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
         
-        concatted=tf.concat([x_post,y_local_pre,y_local_post],axis=-1)
-        y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
+        y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre,hiddens_post], training=True)
         #upsample_resolution = tf.shape(multilabel_map)
   
         #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
@@ -796,21 +795,19 @@ class USegFormer(tf.keras.Model):
     
 
         loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[1]
+        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
-        iou_score=self.iou_score(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
-        total_dice=(2*iou_score)/(1+iou_score)
+      
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
 
-        self.f1_total_tracker.update_state(total_dice)   
+        self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
         self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
         self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
-        self.f1_unclassified_tracker.update_state(dices["unclassified"])
+        self.f1_background_tracker.update_state(dices["background"])
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
-        self.iou_score_tracker.update_state(iou_score)
         self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
 
         results = {m.name: m.result() for m in self.metrics}

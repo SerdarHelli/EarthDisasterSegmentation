@@ -53,6 +53,8 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
         self.excite_conv = tf.keras.layers.Conv2D(
             self.filters, (1, 1), activation=self.excite_activation,padding="same", kernel_initializer = 'he_normal'
         )
+    def build(self,input_shape):
+        self.filters=input_shape[-1]
 
     def call(self, inputs, training=True):
         x = self.global_average_pool(inputs)  # x: (batch_size, 1, 1, filters)
@@ -376,3 +378,52 @@ class ConvNeXtBlock(tf.keras.layers.Layer):
         x = skip + self.drop_path(x)
         return x
     
+class SPADE(tf.keras.layers.Layer):
+    def __init__(self, filters, epsilon=1e-5, **kwargs):
+    
+        super().__init__(**kwargs)
+        self.epsilon = epsilon
+        self.filters=filters
+        self.conv = tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu")
+        self.conv_gamma = tf.keras.layers.Conv2D(filters, 3, padding="same")
+        self.conv_beta = tf.keras.layers.Conv2D(filters, 3, padding="same")
+
+    def build(self, input_shape):
+
+        self.resize_shape = input_shape[1:3]
+
+    def call(self, input_tensor, raw_mask):
+        mask = tf.image.resize(raw_mask, (self.resize_shape), method="nearest")
+        x = self.conv(mask)
+        gamma = self.conv_gamma(x)
+        beta = self.conv_beta(x)
+        mean, var = tf.nn.moments(input_tensor, axes=(0, 1, 2), keepdims=True)
+        std = tf.sqrt(var + self.epsilon)
+        normalized = (input_tensor - mean) / std
+        output = ((gamma) * normalized) + beta
+        return output
+
+
+class ConvSpadeBlock(tf.keras.layers.Layer):
+    def __init__(self, filters,drop_path_rate=0,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
+        self.drop_path_rate=drop_path_rate
+
+    def build(self, input_shape):
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.conv_2 = tf.keras.layers.Conv2D(self.filters, 3, padding="same", kernel_initializer = 'he_normal')
+        self.norm1 = SPADE(self.filters)
+        self.norm2 = SPADE(self.filters)
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
+
+
+    def call(self, input_tensor: tf.Tensor):
+        input_tensor,mask=input_tensor
+        x = self.conv_1(input_tensor)
+        x = self.norm1(tf.nn.relu(x),mask)
+        x = self.conv_2(x)
+        x = self.norm2(tf.nn.relu(x),mask)
+        x=self.droput(x)
+        return x

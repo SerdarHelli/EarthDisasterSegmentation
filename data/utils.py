@@ -169,8 +169,8 @@ def save_image(polygons, output_path):
     
 def get_encoded(img):
   mask = np.zeros(( *img.shape[:2],5))
-  for i in range(1, 5):
-    mask[ img[:, :] == i,i - 1] = 1
+  for i in range(0, 4):
+    mask[ img[:, :] == i,i ] = 1
   return mask
 
 def create_inference_image(json_input_path):
