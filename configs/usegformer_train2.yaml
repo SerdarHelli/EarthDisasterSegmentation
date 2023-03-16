@@ -40,11 +40,11 @@ usegformer :
       - 512
       - 3
     widths:
+      - 16
       - 32
       - 64
       - 128
       - 320
-      - 512
       - 512
     num_attention_heads:
       - 1
