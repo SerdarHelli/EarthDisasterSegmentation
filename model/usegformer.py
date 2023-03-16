@@ -395,12 +395,12 @@ def build_uspatialcondition_model(
     x = UpSample(widths[0],norm="batchnorm")(x)
     x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
     x=tf.keras.layers.BatchNormalization()(x)
-    x=tf.keras.layers.Activation("relu")
+    x=tf.keras.layers.Activation("relu")(x)
 
-    x = tf.keras.layers.Conv2D(5,1, padding="same", )
-    output=tf.keras.layers.Activation("softmax")
+    x = tf.keras.layers.Conv2D(5,1, padding="same", )(x)
+    output=tf.keras.layers.Activation("softmax")(x)
 
-    return keras.Model([pre_mask,[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3],[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]], output, name="uspatial_net")
+    return keras.Model([pre_mask,hiddenspre,hiddenspost], output, name="uspatial_net")
 
 def build_usegformernet_model(
     input_shape,
@@ -713,10 +713,12 @@ class USegFormer(tf.keras.Model):
 
 
         with tf.GradientTape() as tape:
-            y_local,hiddens=self.unet_layer(x_pre,training=False)
-            xx_pre=tf.concat([x_pre,y_local],axis=-1)
+            y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
+            y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
 
-            y_multilabel_resized = self.network([x_post,xx_pre,hiddens], training=True)
+            concatted=tf.concat([x_post,y_local_pre,y_local_post])
+
+            y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
             #upsample_resolution = tf.shape(multilabel_map)
      
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
@@ -751,9 +753,11 @@ class USegFormer(tf.keras.Model):
         # 1. Get the batch size
         (x_pre,x_post),(local_map,multilabel_map)=inputs
 
-        y_local,hiddens=self.unet_layer(x_pre,training=False)
-        xx_pre=tf.concat([x_pre,y_local],axis=-1)
-        y_multilabel_resized = self.network([x_post,xx_pre,hiddens], training=True)
+        y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
+        y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
+        
+        concatted=tf.concat([x_post,y_local_pre,y_local_post])
+        y_multilabel_resized = self.network([concatted,hiddens_pre,hiddens_post], training=True)
         #upsample_resolution = tf.shape(multilabel_map)
   
         #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
