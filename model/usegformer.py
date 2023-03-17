@@ -166,7 +166,6 @@ def build_uspatialcondition_model(
     x=DilatedSpatialPyramidPooling(x)
 
 
-    x=SpatialTransformer(widths[1]//8,widths[1])([x,context])
     x = UpSample(widths[1],norm="batchnorm")(x)
 
     for _ in range(num_res_blocks):
@@ -290,9 +289,9 @@ class USegFormer(tf.keras.Model):
             FN = np.logical_and(pred != c, targ == c).sum()
             FP = np.logical_and(pred == c, targ != c).sum()
             
-            R=TP/(TP+FN)
-            P=TP/(TP+FP)
-            dices.append((2*P*R)/(P+R))
+            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+            dices.append(np.float32((2*P*R)/(P+R)))
                          
         dice=np.mean(np.asarray(dices))
         return np.float32(dice)
