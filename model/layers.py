@@ -436,10 +436,10 @@ def gelu(x):
 def quick_gelu(x):
     return x * tf.sigmoid(x * 1.702)
 
-class GEGLU(keras.layers.Layer):
+class GEGLU(tf.keras.layers.Layer):
     def __init__(self, dim_out):
         super().__init__()
-        self.proj = layers.Conv2D(dim_out*2,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.proj = tf.keras.layers.Conv2D(dim_out*2,kernel_size=1,padding="same", kernel_initializer='he_normal')
         self.dim_out = dim_out
 
     def call(self, x):
@@ -447,7 +447,7 @@ class GEGLU(keras.layers.Layer):
         x, gate = xp[..., : self.dim_out], xp[..., self.dim_out :]
         return x * gelu(gate)
     
-class ReScaler(keras.layers.Layer):
+class ReScaler(tf.keras.layers.Layer):
   def __init__(self, orig_shape):
     super().__init__()
     self.orig_shape=orig_shape
