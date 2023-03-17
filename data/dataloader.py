@@ -131,7 +131,14 @@ class EvalGen(tf.keras.utils.Sequence):
     def split2piece(self,im):
         #To Do 
         #split other for imgsize
-        pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+        if len(im.shape)==2:
+            pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+
+        elif len(im.shape)==3:
+            pieces=[im[:512,:512],im[:512,512:],im[512:,:512],im[512:,512:]]
+        else:
+            raise("Invalid Shape On Masks")
+
         return pieces
     
     def __load_data__(self,i):  
@@ -286,7 +293,14 @@ class EvalUnetGen(tf.keras.utils.Sequence):
     def split2piece(self,im):
         #To Do 
         #split other for imgsize
-        pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+        if len(im.shape)==2:
+            pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+
+        elif len(im.shape)==3:
+            pieces=[im[:512,:512],im[:512,512:],im[512:,:512],im[512:,512:]]
+        else:
+            raise("Invalid Shape On Masks")
+
         return pieces
     
     def __load_data__(self,i):  
