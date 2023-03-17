@@ -58,9 +58,10 @@ class USegFormer(tf.keras.Model):
         del unet_model
 
     def build_usegformer(self,):
+        self.unet_layer.trainable=False
+
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
-        
         local_map,hidden_states=self.unet_layer(input_pre)
         concatted=tf.keras.layers.Concatenate()([input_post,local_map])
         output=self.segformer_layer(concatted,hidden_states)
