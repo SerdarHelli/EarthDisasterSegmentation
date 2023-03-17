@@ -427,3 +427,186 @@ class ConvSpadeBlock(tf.keras.layers.Layer):
         x = self.norm2(tf.nn.relu(x),mask)
         x=self.droput(x)
         return x
+
+def gelu(x):
+    tanh_res = tf.keras.activations.tanh(x * 0.7978845608 * (1 + 0.044715 * (x**2)))
+    return 0.5 * x * (1 + tanh_res)
+
+
+def quick_gelu(x):
+    return x * tf.sigmoid(x * 1.702)
+
+class GEGLU(keras.layers.Layer):
+    def __init__(self, dim_out):
+        super().__init__()
+        self.proj = layers.Conv2D(dim_out*2,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.dim_out = dim_out
+
+    def call(self, x):
+        xp = self.proj(x)
+        x, gate = xp[..., : self.dim_out], xp[..., self.dim_out :]
+        return x * gelu(gate)
+    
+class ReScaler(keras.layers.Layer):
+  def __init__(self, orig_shape):
+    super().__init__()
+    self.orig_shape=orig_shape
+    
+  def call(self, inputs):
+      inputs=tf.image.resize(inputs,size=(self.orig_shape[1:3]))
+      return inputs
+
+class TFSegformerDropPath(tf.keras.layers.Layer):
+    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
+    References:
+        (1) github.com:rwightman/pytorch-image-models
+    """
+
+    def __init__(self, drop_path, **kwargs):
+        super().__init__(**kwargs)
+        self.drop_path = drop_path
+
+    def call(self, x, training=None):
+        if training:
+            keep_prob = 1 - self.drop_path
+            shape = (tf.shape(x)[0],) + (1,) * (len(tf.shape(x)) - 1)
+            random_tensor = keep_prob + tf.random.uniform(shape, 0, 1)
+            random_tensor = tf.floor(random_tensor)
+            return (x / keep_prob) * random_tensor
+        return x
+
+class CrossAttentionBlock(tf.keras.layers.Layer):
+    """Applies cross-attention.
+
+    Args:
+        units: Number of units in the dense layers
+        groups: Number of groups to be used for GroupNormalization layer
+    """
+
+    def __init__(self, units, groups=8, **kwargs):
+        self.units = units
+        self.groups = groups
+        super().__init__(**kwargs)
+    
+        self.query = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.key = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.value = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.proj =tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+    def build(self,input_shape):
+
+        self.norm = tf.keras.layers.LayerNormalization()
+        
+    def call(self, inputs):
+        inputs, context = inputs
+        context = inputs if context is None else context
+
+        batch_size = tf.shape(inputs)[0]
+        height = tf.shape(inputs)[1]
+        width = tf.shape(inputs)[2]
+        scale = tf.cast(self.units, tf.float32) ** (-0.5)
+
+        inputs = self.norm(inputs)
+        q = self.query(inputs)
+        k = self.key(context)
+        v = self.value(context)
+
+        attn_score = tf.einsum("bhwc, bHWc->bhwHW", q, k) * scale
+        attn_score = tf.reshape(attn_score, [batch_size, height, width, height * width])
+
+        attn_score = tf.nn.softmax(attn_score, -1)
+        attn_score = tf.reshape(attn_score, [batch_size, height, width, height, width])
+
+        proj = tf.einsum("bhwHW,bHWc->bhwc", attn_score, v)
+        proj = self.proj(proj)
+        return inputs + proj
+    
+
+class AttentionBlock(tf.keras.layers.Layer):
+    """Applies self-attention.
+
+    Args:
+        units: Number of units in the dense layers
+        groups: Number of groups to be used for GroupNormalization layer
+    """
+
+    def __init__(self, units, groups=8, **kwargs):
+        self.units = units
+        self.groups = groups
+        super().__init__(**kwargs)
+
+        self.query = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.key = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.value = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.proj =tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+    def build(self,input_shape):
+        self.norm = tf.keras.layers.LayerNormalization()
+
+
+        
+    def call(self, inputs):
+        batch_size = tf.shape(inputs)[0]
+        height = tf.shape(inputs)[1]
+        width = tf.shape(inputs)[2]
+        scale = tf.cast(self.units, tf.float32) ** (-0.5)
+
+        q = self.query(inputs)
+        k = self.key(inputs)
+        v = self.value(inputs)
+
+        attn_score = tf.einsum("bhwc, bHWc->bhwHW", q, k) * scale
+        attn_score = tf.reshape(attn_score, [batch_size, height, width, height * width])
+
+        attn_score = tf.nn.softmax(attn_score, -1)
+        attn_score = tf.reshape(attn_score, [batch_size, height, width, height, width])
+
+        proj = tf.einsum("bhwHW,bHWc->bhwc", attn_score, v)
+        proj = self.proj(proj)
+        return inputs + proj
+
+class BasicTransformerBlock(tf.keras.layers.Layer):
+    def __init__(self, dim,):
+        super().__init__()
+        self.attn1 = AttentionBlock(dim)
+        self.attn2 = CrossAttentionBlock(dim)
+        self.geglu = GEGLU(dim * 4)
+        self.dense  =tf.keras.layers.Conv2D(dim,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+    def call(self, inputs):
+        x, context = inputs
+        x = self.attn1(x) + x
+        x = self.attn2([x, context]) + x
+        return self.dense(self.geglu(x)) + x
+
+
+class SpatialTransformer(tf.keras.layers.Layer):
+    def __init__(self, channels):
+        super().__init__()
+        self.norm = tf.keras.layers.LayerNormalization()
+        self.proj_x =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+        self.proj_in =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.transformer_blocks = [BasicTransformerBlock(channels)]
+        self.proj_out = tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.proj_out_final = tf.keras.layers.Conv2D(channels*4,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+    def build(self,input_shape):
+        shape=input_shape[0]
+        self.scaler=ReScaler(orig_shape=shape)
+
+
+    def call(self, inputs):
+        x, context = inputs
+        context = x if context is None else context
+        if context is not None:
+          context=self.scaler(context)
+        x_in = self.proj_x(x)
+        x = self.norm(x)
+        x = self.proj_in(x)
+        for block in self.transformer_blocks:
+            x = block([x, context])
+        x=self.proj_out(x) + x_in
+
+        return self.proj_out_final(x)
+    

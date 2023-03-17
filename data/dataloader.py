@@ -54,7 +54,7 @@ class DataGen(tf.keras.utils.Sequence):
         post_target=create_inference_image(self.post_target_files[i])
         pre_target=create_inference_image(self.pre_target_files[i])
         pre_target=(pre_target>0.25)*1
-        post_target=get_encoded(post_target)
+        #post_target=get_encoded(post_target)
 
         #post_target[post_target==5]=1
 
@@ -141,7 +141,7 @@ class EvalGen(tf.keras.utils.Sequence):
         pre_target=create_inference_image(self.pre_target_files[i])
         pre_target=(pre_target>0.25)*1
 
-        post_target=get_encoded(post_target)
+        #post_target=get_encoded(post_target)
         post_target=np.float32(post_target)
         pre_target=np.expand_dims(np.float32(pre_target),axis=-1)
 

@@ -631,7 +631,7 @@ class USegFormer(tf.keras.Model):
         self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceFocalLoss()
-        self.loss_2=WeightedCrossentropy(weights = {0: 1,1: 1})
+        self.loss_2=tf.keras.losses.SparseCategoricalCrossentropy()
 
         self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 4})
 
@@ -675,6 +675,7 @@ class USegFormer(tf.keras.Model):
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
+        y_true=tf.one_hot(y_true, 5)
         d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
         d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
         d2=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
@@ -758,7 +759,7 @@ class USegFormer(tf.keras.Model):
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
             loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_2=self.loss2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -795,7 +796,7 @@ class USegFormer(tf.keras.Model):
     
 
         loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss2_full_compute(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_2=self.loss2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
       
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)

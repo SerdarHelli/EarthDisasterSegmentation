@@ -1,5 +1,5 @@
 lr: 0.001
-weight_decay: 1.0e-03
+weight_decay: 1.0e-04
 use_ema: False
 ema_momentum: 0.9999
 seed: 1234
