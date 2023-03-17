@@ -340,17 +340,9 @@ class USegFormer(tf.keras.Model):
             d2=d2*weights[2]
             d3=d3*weights[3]
             d4=d4*weights[4]
-        loss=(d1+d2+d3+d4+d0)/5
+        loss=(d1+d2+d3+d4+d0)
         return loss
 
-    def loss2_full_compute(self,y_true, y_pred):
-        d0=self.loss_2(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d1=self.loss_2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d2=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d3=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d4=self.loss_2_weighted(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
-        loss=(d1+d2+d3+d4+d0)/5
-        return loss
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
                                                 network=self.network,
