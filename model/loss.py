@@ -58,7 +58,7 @@ class DiceLoss(tf.keras.losses.Loss):
     
 class DiceFocalLoss(tf.keras.losses.Loss):
  
-    def __init__(self,weights={'dice':0.5,'focal':2},**kwargs):
+    def __init__(self,weights={'dice':0.5,'focal':5},**kwargs):
         super().__init__(**kwargs)
         self.focal_loss=FocalLoss()
         self.dice_loss=DiceLoss()
