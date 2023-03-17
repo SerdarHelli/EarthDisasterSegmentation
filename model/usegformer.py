@@ -9,7 +9,7 @@ import datetime
 from utils.utils import instantiate_from_config
 from model.unet import *
 from model.layers import *
-
+import numpy as np
 import tensorflow.keras.backend as K
 
 def convolution_block(
@@ -131,6 +131,9 @@ def build_uspatialcondition_model(
     pre_mask_input = tf.keras.layers.Input(
         shape=context_shape, name="pre_mask"
     )
+
+       
+
     context_sub1=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(post_input)
     context_sub2=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(pre_mask_input)
     context= tf.keras.layers.Concatenate()([context_sub1,context_sub2])
@@ -140,32 +143,30 @@ def build_uspatialcondition_model(
     context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
     context = convolution_block(context,num_filters=widths[1])
     context = convolution_block(context,num_filters=widths[1])
-
-
     hiddens=[]
+    hiddens.append(context)
+
     shapes=[1,2,3,4]
     for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
 
         hidden_pre=DilatedSpatialPyramidPooling(hidden_pre)
         hidden_post=DilatedSpatialPyramidPooling(hidden_post)
-        x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
-                      
+        x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])                   
 
         for j in range(shapes[idx]):
             for _ in range(num_res_blocks):
                 x=convolution_block(x,num_filters=widths[j+2])
-            x=SpatialTransformer(widths[j+2]//4)([x,context])
 
             x = UpSample(widths[j+2],norm="batchnorm")(x)
         hiddens.append(x)
-
     x= tf.keras.layers.Concatenate()(hiddens)
     for _ in range(num_res_blocks):
             x=convolution_block(x,num_filters=widths[1])
 
-    x=tf.keras.layers.Multiply()([x,context])
     x=DilatedSpatialPyramidPooling(x)
 
+
+    x=SpatialTransformer(widths[1]//8,widths[1])([x,context])
     x = UpSample(widths[1],norm="batchnorm")(x)
 
     for _ in range(num_res_blocks):
@@ -296,7 +297,6 @@ class USegFormer(tf.keras.Model):
         dice=np.mean(np.asarray(dices))
         return np.float32(dice)
     
-    @tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
     def get_dice(self,y_true, y_pred):
 
         dice = tf.numpy_function(self.compute_tp_fn_fp, [y_true, y_pred], tf.float32)

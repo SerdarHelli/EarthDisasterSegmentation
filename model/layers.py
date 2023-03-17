@@ -581,7 +581,7 @@ class BasicTransformerBlock(tf.keras.layers.Layer):
 
 
 class SpatialTransformer(tf.keras.layers.Layer):
-    def __init__(self, channels):
+    def __init__(self, channels,out_channels):
         super().__init__()
         self.norm = tf.keras.layers.LayerNormalization()
         self.proj_x =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
@@ -589,7 +589,7 @@ class SpatialTransformer(tf.keras.layers.Layer):
         self.proj_in =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
         self.transformer_blocks = [BasicTransformerBlock(channels)]
         self.proj_out = tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.proj_out_final = tf.keras.layers.Conv2D(channels*4,kernel_size=1,padding="same", kernel_initializer='he_normal')
+        self.proj_out_final = tf.keras.layers.Conv2D(out_channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
 
     def build(self,input_shape):
         shape=input_shape[0]
