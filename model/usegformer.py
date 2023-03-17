@@ -155,7 +155,7 @@ def build_uspatialcondition_model(
 
         for j in range(shapes[idx]):
             for _ in range(num_res_blocks):
-                x=convolution_block(x,num_filters=widths[j+2])
+                x=convolution_block(x,num_filters=widths[j+2],dilation_rate=j*4)
 
             x = UpSample(widths[j+2],norm="batchnorm")(x)
         hiddens.append(x)
@@ -165,11 +165,13 @@ def build_uspatialcondition_model(
 
     x=DilatedSpatialPyramidPooling(x)
 
-
+    x=AttentionGate(widths[1])(context,x)
     x = UpSample(widths[1],norm="batchnorm")(x)
 
     for _ in range(num_res_blocks):
             convolution_block(x,num_filters=widths[0])
+
+    x=AttentionGate(widths[0])(context,x)
 
     x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
     x=tf.keras.layers.BatchNormalization()(x)
