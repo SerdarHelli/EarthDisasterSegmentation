@@ -1,373 +1,104 @@
 #ref Huggingg Face Segformer
 
 import tensorflow as tf
-import math
-from typing import Optional
-from tensorflow import keras
-from tensorflow.keras import layers
+
 import os
 from model.loss import *
 import os
 import datetime
 from utils.utils import instantiate_from_config
 from model.unet import *
+from model.layers import *
+
 import tensorflow.keras.backend as K
 
+def convolution_block(
+    block_input,
+    num_filters=256,
+    kernel_size=3,
+    dilation_rate=1,
+    padding="same",
+    use_bias=False,
+):
+    x = tf.keras.layers.Conv2D(
+        num_filters,
+        kernel_size=kernel_size,
+        dilation_rate=dilation_rate,
+        padding="same",
+        use_bias=use_bias,
+        kernel_initializer=tf.keras.initializers.HeNormal(),
+    )(block_input)
+    x = tf.keras.layers.BatchNormalization()(x)
+    return tf.nn.relu(x)
+
+
+def DilatedSpatialPyramidPooling(dspp_input):
+    dims = dspp_input.shape
+    x = tf.keras.layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(dspp_input)
+    x = convolution_block(x, kernel_size=1, use_bias=True)
+    out_pool = tf.keras.layers.UpSampling2D(
+        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
+    )(x)
+
+    out_1 = convolution_block(dspp_input, kernel_size=1, dilation_rate=1)
+    out_6 = convolution_block(dspp_input, kernel_size=3, dilation_rate=6)
+    out_12 = convolution_block(dspp_input, kernel_size=3, dilation_rate=12)
+    out_18 = convolution_block(dspp_input, kernel_size=3, dilation_rate=18)
+
+    x = tf.keras.layers.Concatenate(axis=-1)([out_pool, out_1, out_6, out_12, out_18])
+    output = convolution_block(x, kernel_size=1)
+    return output
+
+
+import tensorflow as tf
+
+import os
+from model.loss import *
+import os
+import datetime
+from utils.utils import instantiate_from_config
+from model.unet import *
+from model.layers import *
+from tensorflow import keras
+import tensorflow.keras.backend as K
+
+def convolution_block(
+    block_input,
+    num_filters=256,
+    kernel_size=3,
+    dilation_rate=1,
+    padding="same",
+    use_bias=False,
+):
+    x = tf.keras.layers.Conv2D(
+        num_filters,
+        kernel_size=kernel_size,
+        dilation_rate=dilation_rate,
+        padding="same",
+        use_bias=use_bias,
+        kernel_initializer=tf.keras.initializers.HeNormal(),
+    )(block_input)
+    x = tf.keras.layers.BatchNormalization()(x)
+    return tf.nn.relu(x)
+
+
+def DilatedSpatialPyramidPooling(dspp_input):
+    dims = dspp_input.shape
+    x = tf.keras.layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(dspp_input)
+    x = convolution_block(x, kernel_size=1, use_bias=True)
+    out_pool = tf.keras.layers.UpSampling2D(
+        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
+    )(x)
+
+    out_1 = convolution_block(dspp_input, kernel_size=1, dilation_rate=1)
+    out_6 = convolution_block(dspp_input, kernel_size=3, dilation_rate=6)
+    out_12 = convolution_block(dspp_input, kernel_size=3, dilation_rate=12)
+    out_18 = convolution_block(dspp_input, kernel_size=3, dilation_rate=18)
+
+    x = tf.keras.layers.Concatenate(axis=-1)([out_pool, out_1, out_6, out_12, out_18])
+    output = convolution_block(x, kernel_size=1)
+    return output
 
-
-def gelu(x):
-    tanh_res = tf.keras.activations.tanh(x * 0.7978845608 * (1 + 0.044715 * (x**2)))
-    return 0.5 * x * (1 + tanh_res)
-
-
-def quick_gelu(x):
-    return x * tf.sigmoid(x * 1.702)
-
-class GEGLU(keras.layers.Layer):
-    def __init__(self, dim_out):
-        super().__init__()
-        self.proj = layers.Conv2D(dim_out*2,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.dim_out = dim_out
-
-    def call(self, x):
-        xp = self.proj(x)
-        x, gate = xp[..., : self.dim_out], xp[..., self.dim_out :]
-        return x * gelu(gate)
-    
-class ReScaler(keras.layers.Layer):
-  def __init__(self, orig_shape):
-    super().__init__()
-    self.orig_shape=orig_shape
-    
-  def call(self, inputs):
-      inputs=tf.image.resize(inputs,size=(self.orig_shape[1:3]))
-      return inputs
-
-class TFSegformerDropPath(tf.keras.layers.Layer):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-    References:
-        (1) github.com:rwightman/pytorch-image-models
-    """
-
-    def __init__(self, drop_path, **kwargs):
-        super().__init__(**kwargs)
-        self.drop_path = drop_path
-
-    def call(self, x, training=None):
-        if training:
-            keep_prob = 1 - self.drop_path
-            shape = (tf.shape(x)[0],) + (1,) * (len(tf.shape(x)) - 1)
-            random_tensor = keep_prob + tf.random.uniform(shape, 0, 1)
-            random_tensor = tf.floor(random_tensor)
-            return (x / keep_prob) * random_tensor
-        return x
-
-class CrossAttentionBlock(layers.Layer):
-    """Applies cross-attention.
-
-    Args:
-        units: Number of units in the dense layers
-        groups: Number of groups to be used for GroupNormalization layer
-    """
-
-    def __init__(self, units, groups=8, **kwargs):
-        self.units = units
-        self.groups = groups
-        super().__init__(**kwargs)
-    
-        self.query = layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.key = layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.value = layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.proj =layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-
-    def build(self,input_shape):
-
-        self.norm = layers.LayerNormalization()
-        
-    def call(self, inputs):
-        inputs, context = inputs
-        context = inputs if context is None else context
-
-        batch_size = tf.shape(inputs)[0]
-        height = tf.shape(inputs)[1]
-        width = tf.shape(inputs)[2]
-        scale = tf.cast(self.units, tf.float32) ** (-0.5)
-
-        inputs = self.norm(inputs)
-        q = self.query(inputs)
-        k = self.key(context)
-        v = self.value(context)
-
-        attn_score = tf.einsum("bhwc, bHWc->bhwHW", q, k) * scale
-        attn_score = tf.reshape(attn_score, [batch_size, height, width, height * width])
-
-        attn_score = tf.nn.softmax(attn_score, -1)
-        attn_score = tf.reshape(attn_score, [batch_size, height, width, height, width])
-
-        proj = tf.einsum("bhwHW,bHWc->bhwc", attn_score, v)
-        proj = self.proj(proj)
-        return inputs + proj
-    
-
-class AttentionBlock(tf.keras.layers.Layer):
-    """Applies self-attention.
-
-    Args:
-        units: Number of units in the dense layers
-        groups: Number of groups to be used for GroupNormalization layer
-    """
-
-    def __init__(self, units, groups=8, **kwargs):
-        self.units = units
-        self.groups = groups
-        super().__init__(**kwargs)
-
-        self.query = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.key = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.value = tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.proj =tf.keras.layers.Conv2D(units,kernel_size=1,padding="same", kernel_initializer='he_normal')
-
-    def build(self,input_shape):
-        self.norm = layers.LayerNormalization()
-
-
-        
-    def call(self, inputs):
-        batch_size = tf.shape(inputs)[0]
-        height = tf.shape(inputs)[1]
-        width = tf.shape(inputs)[2]
-        scale = tf.cast(self.units, tf.float32) ** (-0.5)
-
-        q = self.query(inputs)
-        k = self.key(inputs)
-        v = self.value(inputs)
-
-        attn_score = tf.einsum("bhwc, bHWc->bhwHW", q, k) * scale
-        attn_score = tf.reshape(attn_score, [batch_size, height, width, height * width])
-
-        attn_score = tf.nn.softmax(attn_score, -1)
-        attn_score = tf.reshape(attn_score, [batch_size, height, width, height, width])
-
-        proj = tf.einsum("bhwHW,bHWc->bhwc", attn_score, v)
-        proj = self.proj(proj)
-        return inputs + proj
-
-class BasicTransformerBlock(keras.layers.Layer):
-    def __init__(self, dim,):
-        super().__init__()
-        self.attn1 = AttentionBlock(dim)
-        self.attn2 = CrossAttentionBlock(dim)
-        self.geglu = GEGLU(dim * 4)
-        self.dense  =layers.Conv2D(dim,kernel_size=1,padding="same", kernel_initializer='he_normal')
-
-    def call(self, inputs):
-        x, context = inputs
-        x = self.attn1(x) + x
-        x = self.attn2([x, context]) + x
-        return self.dense(self.geglu(x)) + x
-
-
-class SpatialTransformer(keras.layers.Layer):
-    def __init__(self, channels):
-        super().__init__()
-        self.norm = layers.LayerNormalization()
-        self.proj_x =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
-
-        self.proj_in =  tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.transformer_blocks = [BasicTransformerBlock(channels)]
-        self.proj_out = tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
-        self.proj_out_final = tf.keras.layers.Conv2D(channels*4,kernel_size=1,padding="same", kernel_initializer='he_normal')
-
-    def build(self,input_shape):
-        shape=input_shape[0]
-        self.scaler=ReScaler(orig_shape=shape)
-
-
-    def call(self, inputs):
-        x, context = inputs
-        context = x if context is None else context
-        if context is not None:
-          context=self.scaler(context)
-        x_in = self.proj_x(x)
-        x = self.norm(x)
-        x = self.proj_in(x)
-        for block in self.transformer_blocks:
-            x = block([x, context])
-        x=self.proj_out(x) + x_in
-
-        return self.proj_out_final(x)
-    
-
-def DownSample(width):
-    def apply(x):
-        x = layers.Conv2D(
-            width,
-            kernel_size=3,
-            strides=2,
-            padding="same",
-        )(x)
-        return x
-
-    return apply
-
-    
-class UpSample(tf.keras.layers.Layer):
-    def __init__(self, filters,norm="batchnorm", **kwargs):
-        super().__init__(**kwargs)
-        self.filters = filters
-        self.norm_str=norm
-    def build(self, input_shape):
-        self.conv_1 = tf.keras.layers.Conv2DTranspose(self.filters , kernel_size=5, padding="same", strides=(2,2), kernel_initializer = 'he_normal')
-        self.norm1 = getNorm(self.norm_str)
-        self.act=tf.keras.layers.Activation("relu")
-
-    def call(self, input_tensor: tf.Tensor):
-        x = self.conv_1(input_tensor)
-        x=self.norm1(x)
-        x=self.act(x)
-        return x
-
-def getNorm(norm_str,eps=1e-6):
-    x=None
-    if norm_str=="batchnorm":
-        x= tf.keras.layers.BatchNormalization(epsilon=eps)
-    if norm_str=="layernorm":
-        x= tf.keras.layers.LayerNormalization(epsilon=eps)
-    if not x:
-        raise("Invalid Normalization ")
-    return x
-
-
-
-
-
-
-
-
-
-class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
-
-    """
-        U-Net AutoEncoder:
-        All blocks are resblock. 
-        
-        Between encoder and decoder , there is vit block.
-        
-        Paper Ref:
-        TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation
-        Jieneng Chen, Yongyi Lu, Qihang Yu, Xiangde Luo, Ehsan Adeli, Yan Wang, Le Lu, Alan L. Yuille, Yuyin Zhou
-    """
-    def __init__(self,hidden_sizes,unet_num_res_blocks,unet_num_transformer,unet_num_heads,drop_path_rate,depths, **kwargs):
-        super().__init__(**kwargs)
-        self.hidden_sizes = hidden_sizes
-        self.unet_num_res_blocks = unet_num_res_blocks
-        self.unet_num_transformer=unet_num_transformer
-        self.unet_num_heads=unet_num_heads
-        self.unet_hidden_sizes=hidden_sizes
-        self.norm="batchnorm"
-        self.drop_path_rate=drop_path_rate
-
-    def build(self,input_shape):
-        self.final_activation = tf.keras.layers.Activation("softmax")
-
-        self.conv_first=tf.keras.layers.Conv2D(self.hidden_sizes[0]//4, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
-        self.encoder_blocks=[]
-        self.concat_idx=[]
-        self.decoder_blocks=[]
-        self.hidden_states_idx=[]
-        idx_x=0
-        for i,hidden_size in enumerate(self.unet_hidden_sizes):
-                for _ in range(self.unet_num_res_blocks):
-                    idx_x=idx_x+1
-                    x = ResBlock(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
-                    self.encoder_blocks.append(x)
-
-                if hidden_size in self.unet_hidden_sizes[3:]:
-                  idx_x=idx_x+1
-                  x=SpatialTransformer(hidden_size//4)
-                  self.encoder_blocks.append(x)
-
-                if hidden_size != self.unet_hidden_sizes[-1]:
-                  self.concat_idx.append(idx_x-1)
-                  idx_x=idx_x+1
-                  x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
-                  self.encoder_blocks.append(x)
-
-        self.middle_block=SpatialTransformer(self.unet_hidden_sizes[-1]//4)
-
-        for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
-                for _ in range(self.unet_num_res_blocks):
-                    x = ResBlock(hidden_size,norm=self.norm,drop_path_rate=self.drop_path_rate)
-                    self.decoder_blocks.append(x)
-                if hidden_size in self.unet_hidden_sizes[3:]:
-                  idx_x=idx_x+1
-                  x=SpatialTransformer(hidden_size//4)
-                  self.decoder_blocks.append(x)
-                if i!=0:
-
-                   x = UpSample(hidden_size,norm=self.norm)
-                   self.decoder_blocks.append(x)
-
-        self.norm = getNorm(self.norm)
-        self.final_layer=tf.keras.layers.Conv2D(5, kernel_size=1,padding="same",name="classification_map", kernel_initializer = 'he_normal')
-
-    def call(self, input_tensor: tf.Tensor,context_tensor:tf.Tensor,hidden_sizes):
-        x=self.conv_first(input_tensor)
-        skips=[x]
-        curr=0
-        for idx,block in enumerate(self.encoder_blocks):
-            if idx in self.concat_idx[2:]:
-                x = tf.concat([x, hidden_sizes[curr]], axis=-1)
-                curr=curr+1
-            if block.__class__.__name__=="SpatialTransformer":
-                x=block([x,context_tensor])
-            else:
-                x=block(x)
-
-            skips.append(x)
-
-        x=self.middle_block([x,context_tensor])
-        x = tf.concat([x, hidden_sizes[curr]], axis=-1)
-
-        for idx,block in enumerate(self.decoder_blocks):
-            if block.__class__.__name__=="SpatialTransformer":
-                x=block([x,context_tensor])
-            else:
-                x=block(x)
-            if (len(self.decoder_blocks)-1)-idx in self.concat_idx[1:]:
-                  x = tf.concat([x, skips[(len(self.decoder_blocks)-1)-idx]], axis=-1)
-
-        x=tf.nn.relu(self.norm(x))
-        x=self.final_layer(x)
-        x=self.final_activation(x)
-        return x
-    
-class TFSegformerMixFFN(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        in_features: int,
-        hidden_features: int = None,
-        out_features: int = None,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        out_features = out_features or in_features
-        self.dense1 = tf.keras.layers.Dense(hidden_features, name="dense1")
-        self.depthwise_convolution = tf.keras.layers.Conv2D(
-            filters=in_features, kernel_size=3, strides=1, padding="same", groups=in_features, name="dwconv"
-        )
-
-        self.intermediate_act_fn = Gelu()
-
-        self.dense2 = tf.keras.layers.Dense(out_features, name="dense2")
-
-    def call(self, hidden_states: tf.Tensor,  training: bool = True) :
-        hidden_states = self.dense1(hidden_states)
-        hidden_states = self.depthwise_convolution(hidden_states,)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        hidden_states = self.dense2(hidden_states)
-        return hidden_states
-    
 def build_uspatialcondition_model(
     input_shape,
     context_shape,
@@ -394,47 +125,52 @@ def build_uspatialcondition_model(
     hiddens_post0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspost3")
     hiddenspost=[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]
 
-    post_input = layers.Input(
+    post_input = tf.keras.layers.Input(
         shape=input_shape, name="post_image"
     )
-    pre_mask_input = layers.Input(
+    pre_mask_input = tf.keras.layers.Input(
         shape=context_shape, name="pre_mask"
     )
-    context=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(post_input)
-    context = ConvSpadeBlock(widths[0])([context,pre_mask_input])
-    context = ConvSpadeBlock(widths[0])([context,pre_mask_input])
+    context_sub1=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(post_input)
+    context_sub2=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(pre_mask_input)
+    context= tf.keras.layers.Concatenate()([context_sub1,context_sub2])
+
+    context = convolution_block(context,num_filters=widths[0])
+    context = convolution_block(context,num_filters=widths[0])
     context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
-    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
-    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
-    context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
-    context = ConvSpadeBlock(widths[1])([context,pre_mask_input])
+    context = convolution_block(context,num_filters=widths[1])
+    context = convolution_block(context,num_filters=widths[1])
+
 
     hiddens=[]
+    shapes=[1,2,3,4]
     for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
 
-        hidden_pre=SqueezeAndExcite2D(filters=widths[2:][idx])(hidden_pre)
-        hidden_post=SqueezeAndExcite2D(filters=widths[2:][idx])(hidden_post)
+        hidden_pre=DilatedSpatialPyramidPooling(hidden_pre)
+        hidden_post=DilatedSpatialPyramidPooling(hidden_post)
         x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])
-        for _ in range(num_res_blocks):
-            x=ConvBlock(widths[-idx])(x)
-        
-        x=SpatialTransformer(widths[-idx]//4)([x,context])
-        x=ReScaler(orig_shape=[1,128,128,widths[-4]])(x)
+                      
+
+        for j in range(shapes[idx]):
+            for _ in range(num_res_blocks):
+                x=convolution_block(x,num_filters=widths[j+2])
+            x=SpatialTransformer(widths[j+2]//4)([x,context])
+
+            x = UpSample(widths[j+2],norm="batchnorm")(x)
         hiddens.append(x)
 
     x= tf.keras.layers.Concatenate()(hiddens)
     for _ in range(num_res_blocks):
-            x=ConvBlock(widths[1])(x)
+            x=convolution_block(x,num_filters=widths[1])
 
     x=tf.keras.layers.Multiply()([x,context])
+    x=DilatedSpatialPyramidPooling(x)
 
     x = UpSample(widths[1],norm="batchnorm")(x)
 
     for _ in range(num_res_blocks):
-            x=ConvBlock(widths[0])(x)
+            convolution_block(x,num_filters=widths[0])
 
-    x = UpSample(widths[0],norm="batchnorm")(x)
-    x=ConvBlock(widths[0])(x)
     x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
     x=tf.keras.layers.BatchNormalization()(x)
     x=tf.keras.layers.Activation("relu")(x)
@@ -442,122 +178,7 @@ def build_uspatialcondition_model(
     x = tf.keras.layers.Conv2D(5,1, padding="same", )(x)
     output=tf.keras.layers.Activation("softmax")(x)
 
-    return keras.Model([post_input,pre_mask_input,hiddenspre,hiddenspost], output, name="uspatial_net")
-
-def build_usegformernet_model(
-    input_shape,
-    context_shape,
-    widths,
-    num_attention_heads,
-    sr_ratios,
-    has_attention,
-    strides,
-    patch_sizes,
-    num_res_blocks=2,
-    activation_fn=keras.activations.swish,
-    first_conv_channels=16,
-):
-
-
-    image_input = layers.Input(
-        shape=input_shape, name="image_post"
-    )
-    image_input_pre= layers.Input(
-        shape=context_shape, name="image_pre"
-    )
-
-    x = layers.Conv2D(
-        first_conv_channels,
-        kernel_size=3,
-        padding="same",
-    )(image_input)
-
-    context = layers.Conv2D(
-        first_conv_channels,
-        kernel_size=1,
-        padding="same",
-    )(image_input_pre)
-
-
-    skips = [x]
-
-    # DownBlock
-    for i in range(len(widths)):
-        for _ in range(num_res_blocks):
-            x = ConvBlock(
-                widths[i]
-            )(x)
-            if has_attention[i]:
-
-                  x=TFSegformerLayer(
-                        hidden_size=widths[i],
-                        num_attention_heads=num_attention_heads[i],
-                        drop_path=0.1,
-                        patch_size=patch_sizes[i],
-                        stride=strides[i],
-                        sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=1,
-                        attention_probs_dropout_prob=0.1,
-                    )(x,context)
-
-
-            skips.append(x)
-
-        if widths[i] != widths[-1]:
-            x = DownSample(widths[i])(x)
-            skips.append(x)
-
-    # MiddleBlock
-    x = ConvBlock(widths[-1] )(
-        x, 
-    )
-
-    x =   TFSegformerLayer(
-                        hidden_size=widths[-1],
-                        num_attention_heads=num_attention_heads[i],
-                        drop_path=0.1,
-                        patch_size=patch_sizes[-1],
-                        stride=strides[-1],
-                        sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=1,
-                        attention_probs_dropout_prob=0.1,
-                    )(x,context)
-
-
-    x = ConvBlock(widths[-1])(
-        x,
-    )
-
-    # UpBlock
-    for i in reversed(range(len(widths))):
-        for _ in range(num_res_blocks + 1):
-            x = layers.Concatenate(axis=-1)([x, skips.pop()])
-            x = ConvBlock(
-                widths[i]
-            )(x)
-            if has_attention[i]:
-                  x=TFSegformerLayer(
-                        hidden_size=widths[i],
-                        num_attention_heads=num_attention_heads[i],
-                        drop_path=0.1,
-                        patch_size=patch_sizes[i],
-                        stride=strides[i],
-                        sequence_reduction_ratio=sr_ratios[i],
-                        mlp_ratio=1,
-                        attention_probs_dropout_prob=0.1,
-                    )(x,context)
-
-
-        if i != 0:
-            x = UpSample(widths[i])(x)
-
-    # End block
-    x=getNorm("batchnorm")(x)
-    x = activation_fn(x)
-    x = layers.Conv2D(5, (1, 1), padding="same")(x)
-    x = tf.keras.layers.Activation("softmax")(x)
-
-    return keras.Model([image_input, image_input_pre], x, name="usegformer_net")
+    return tf.keras.Model([post_input,pre_mask_input,hiddenspre,hiddenspost], output, name="uspatial_net")
 
 
 
@@ -587,7 +208,6 @@ class USegFormer(tf.keras.Model):
         self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
         self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
         self.f1_background_tracker = tf.keras.metrics.Mean(name="f1_background")
-        self.iou_score2_tracker=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1],name="iou")
         self.class_weights=config.weights
 
 
@@ -635,12 +255,6 @@ class USegFormer(tf.keras.Model):
 
         self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 4})
 
-        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-        self.iou_score1=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-        self.iou_score2=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-        self.iou_score3=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-        self.iou_score4=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
-        self.iou_score5=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
 
     @property
     def metrics(self):
@@ -653,18 +267,50 @@ class USegFormer(tf.keras.Model):
             self.f1_majordamage_tracker ,
             self.f1_destroyed_tracker   ,
             self.f1_background_tracker,
-            self.iou_score2_tracker,
         ]
     
+    def compute_tp_fn_fp(self,y_true, y_pred, c=1) :
+        """
+        Computes the number of TPs, FNs, FPs, between a prediction (x) and a target (y) for the desired class (c)
+        Args:
+            y_pred (np.ndarray): prediction
+            y_true (np.ndarray): target
+            c (int): positive class
+        """
+        dices=[]
+        for i in range(y_true.shape[0]):
+            targ=y_true[i,:,:,:]
+            pred=y_pred[i,:,:,:]
 
+            pred=np.float32((y_pred>self.threshold_metric)*1)
+
+
+            TP = np.logical_and(pred == c, targ == c).sum()
+            FN = np.logical_and(pred != c, targ == c).sum()
+            FP = np.logical_and(pred == c, targ != c).sum()
+            
+            R=TP/(TP+FN)
+            P=TP/(TP+FP)
+            dices.append((2*P*R)/(P+R))
+                         
+        dice=np.mean(np.asarray(dices))
+        return np.float32(dice)
+    
+    @tf.function(input_signature=[tf.TensorSpec(None, tf.float32)])
+    def get_dice(self,y_true, y_pred):
+
+        dice = tf.numpy_function(self.compute_tp_fn_fp, [y_true, y_pred], tf.float32)
+        return dice
 
     def dice_classes_score(self,y_true, y_pred):
+        y_true=tf.cast(y_true,dtype=tf.int32)
+        y_true=tf.one_hot(y_true, 5)
         dices={}
-        d0=self.iou_score1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d1=self.iou_score2(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d2=self.iou_score3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d3=self.iou_score4(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d4=self.iou_score5(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        d0=self.get_dice(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.get_dice(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.get_dice(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.get_dice(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.get_dice(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
         dices["nodamage"]=(2*d1)/(1+d1)
         dices["minordamage"]=(2*d2)/(1+d2)
@@ -675,6 +321,7 @@ class USegFormer(tf.keras.Model):
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
+        y_true=tf.cast(y_true,dtype=tf.int32)
         y_true=tf.one_hot(y_true, 5)
         d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
         d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
@@ -759,7 +406,7 @@ class USegFormer(tf.keras.Model):
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
             loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+            loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -775,7 +422,6 @@ class USegFormer(tf.keras.Model):
         self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
         self.f1_destroyed_tracker.update_state(dices["destroyed"])   
         self.f1_background_tracker.update_state(dices["background"])
-        self.iou_score2_tracker.update_state(K.flatten(multilabel_map[:,:,:,1:]),K.flatten(y_multilabel_resized[:,:,:,1:]))
 
         results = {m.name: m.result() for m in self.metrics}
         return results
@@ -796,7 +442,7 @@ class USegFormer(tf.keras.Model):
     
 
         loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
+        loss_2=self.loss_2(multilabel_map,y_multilabel_resized)*self.loss_weights[1]
 
       
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
@@ -809,7 +455,6 @@ class USegFormer(tf.keras.Model):
         self.f1_background_tracker.update_state(dices["background"])
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
-        self.iou_score2_tracker.update_state(K.flatten(multilabel_map),K.flatten(y_multilabel_resized))
 
         results = {m.name: m.result() for m in self.metrics}
         return results
