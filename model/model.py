@@ -330,7 +330,6 @@ class USegFormerSeperated(tf.keras.Model):
 
     def build_usegformer(self,):
         post_image = tf.keras.Input(shape=self.shape_input,name="post_image")
-        pre_target = tf.keras.Input(shape=self.unet_layer.output[0].shape[1:],name="pre_image")
 
         shapes=[]
         for hiddens in self.unet_layer.output[1]:
@@ -338,16 +337,28 @@ class USegFormerSeperated(tf.keras.Model):
         if len(self.unet_layer.output[1])!=4:
             raise "Shape Error"
 
-        hiddens_0= tf.keras.Input(shape=shapes[0],name="hiddens0")
-        hiddens_1= tf.keras.Input(shape=shapes[1],name="hiddens1")
-        hiddens_2= tf.keras.Input(shape=shapes[2],name="hiddens2")
-        hiddens_3= tf.keras.Input(shape=shapes[3],name="hiddens3")
-        hiddens=[hiddens_0,hiddens_1,hiddens_2,hiddens_3]
-        x=tf.keras.layers.Concatenate()([post_image,pre_target])
+        hiddens_pre3= tf.keras.Input(shape=(shapes[0]),name="hiddenspre0")
+        hiddens_pre2= tf.keras.Input(shape=(shapes[1] ),name="hiddenspre1")
+        hiddens_pre1= tf.keras.Input(shape=(shapes[2])  ,name="hiddenspre2")
+        hiddens_pre0= tf.keras.Input(shape=(shapes[3]),name="hiddenspre3")
+        hiddenspre=[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3]
 
-        output=self.segformer_layer(x,hiddens)
+        hiddens_post3= tf.keras.Input(shape=(shapes[0]),name="hiddenspost0")
+        hiddens_post2= tf.keras.Input(shape=(shapes[1]),name="hiddenspost1")
+        hiddens_post1= tf.keras.Input(shape=(shapes[2]),name="hiddenspost2")
+        hiddens_post0= tf.keras.Input(shape=(shapes[3]),name="hiddenspost3")
+        hiddenspost=[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]
+        hiddens=[]
+        for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
+                hidden_pre=DilatedSpatialPyramidPooling(hidden_pre)
+                hidden_post=DilatedSpatialPyramidPooling(hidden_post)
+                x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])     
+                x=ConvBlock(shapes[-idx][-1])(x)
+                hiddens.append(x)
+
+        output=self.segformer_layer(post_image,hiddens)
         
-        model = tf.keras.Model(inputs=[post_image,pre_target,[hiddens_0,hiddens_1,hiddens_2,hiddens_3]], outputs=[output])
+        model = tf.keras.Model(inputs=[post_image,hiddenspre,hiddenspost], outputs=[output])
         return model
 
 
@@ -371,7 +382,6 @@ class USegFormerSeperated(tf.keras.Model):
             self.f1_majordamage_tracker ,
             self.f1_destroyed_tracker   ,
             self.f1_background_tracker,
-            self.f1_local_tracker,
 
         ]
   
@@ -495,9 +505,10 @@ class USegFormerSeperated(tf.keras.Model):
 
 
         with tf.GradientTape() as tape:
-            y_local,hiddens=self.unet_layer(x_pre,training=False)
+            y_pre_local,hiddens_pre=self.unet_layer(x_pre,training=False)
+            y_post_local,hiddens_post=self.unet_layer(x_post,training=False)
 
-            y_multilabel = self.network([x_post,y_local,hiddens], training=True)
+            y_multilabel = self.network([x_post,hiddens_pre,hiddens_post], training=True)
             upsample_resolution = tf.shape(multilabel_map)
      
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
