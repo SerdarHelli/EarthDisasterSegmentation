@@ -317,13 +317,14 @@ class USegFormer(tf.keras.Model):
         d3=self.get_dice(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
         d4=self.get_dice(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
-        dices["nodamage"]=(2*d1)/(1+d1)
-        dices["minordamage"]=(2*d2)/(1+d2)
-        dices["majordamage"]=(2*d3)/(1+d3)
-        dices["destroyed"]=(2*d4)/(1+d4)
-        dices["background"]=(2*d0)/(1+d0)
-        dices["total_dice"]= 4/((dices["nodamage"]+1e-6)**-1+(dices["minordamage"]+1e-6)**-1+(dices["majordamage"]+1e-6)**-1+(dices["destroyed"]+1e-6)**-1)
+        dices["nodamage"]=d1
+        dices["minordamage"]=d2
+        dices["majordamage"]=d3
+        dices["destroyed"]=d4
+        dices["background"]=d0
+        dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
         return dices
+    
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
         y_true=tf.cast(y_true,dtype=tf.int32)
