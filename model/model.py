@@ -7,6 +7,7 @@ from model.loss import *
 import os
 import datetime
 from utils.utils import instantiate_from_config
+import json 
 
 
 
@@ -63,8 +64,8 @@ class USegFormer(tf.keras.Model):
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         local_map,hidden_states=self.unet_layer(input_pre)
-        concatted=tf.keras.layers.Concatenate()([input_post,local_map])
-        output=self.segformer_layer(concatted,hidden_states)
+        #concatted=tf.keras.layers.Concatenate()([input_post,local_map])
+        output=self.segformer_layer(input_post,hidden_states)
         model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
         return model
 
@@ -122,6 +123,7 @@ class USegFormer(tf.keras.Model):
 
         dice = tf.numpy_function(self.compute_tp_fn_fp, [y_true, y_pred], tf.float32)
         return dice
+    
 
     def dice_classes_score(self,y_true, y_pred):
         y_true=tf.cast(y_true,dtype=tf.int32)
@@ -139,6 +141,9 @@ class USegFormer(tf.keras.Model):
         dices["destroyed"]=d4
         dices["background"]=d0
         dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
+
+        listd=[dices["nodamage"],dices["minordamage"],dices["majordamage"],dices["destroyed"],dices["total_dice"]]
+
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
@@ -420,6 +425,8 @@ class USegFormerSeperated(tf.keras.Model):
         dices["destroyed"]=d4
         dices["background"]=d0
         dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
+
+
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
