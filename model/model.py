@@ -91,7 +91,6 @@ class USegFormer(tf.keras.Model):
         ]
     
 
-
     def compute_tp_fn_fp(self,y_true, y_pred, c=1) :
         """
         Computes the number of TPs, FNs, FPs, between a prediction (x) and a target (y) for the desired class (c)
@@ -100,24 +99,20 @@ class USegFormer(tf.keras.Model):
             y_true (np.ndarray): target
             c (int): positive class
         """
-        dices=[]
-        for i in range(y_true.shape[0]):
-            targ=y_true[i,:,:,:]
-            pred=y_pred[i,:,:,:]
+        targ=y_true
+        pred=y_pred
 
-            pred=np.float32((y_pred>self.threshold_metric)*1)
+        pred=np.float32((y_pred>self.threshold_metric)*1)
 
 
-            TP = np.logical_and(pred == c, targ == c).sum()
-            FN = np.logical_and(pred != c, targ == c).sum()
-            FP = np.logical_and(pred == c, targ != c).sum()
-            
-            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
-            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
-            dices.append(np.float32((2*P*R)/(P+R)))
-                         
-        dice=np.mean(np.asarray(dices))
-        return np.float32(dice)
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+
+        return np.float32((2*P*R)/(P+R))
     
     def get_dice(self,y_true, y_pred):
 
@@ -141,8 +136,6 @@ class USegFormer(tf.keras.Model):
         dices["destroyed"]=d4
         dices["background"]=d0
         dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
-
-        listd=[dices["nodamage"],dices["minordamage"],dices["majordamage"],dices["destroyed"],dices["total_dice"]]
 
         return dices
     
@@ -387,7 +380,6 @@ class USegFormerSeperated(tf.keras.Model):
         ]
   
 
-
     def compute_tp_fn_fp(self,y_true, y_pred, c=1) :
         """
         Computes the number of TPs, FNs, FPs, between a prediction (x) and a target (y) for the desired class (c)
@@ -396,24 +388,20 @@ class USegFormerSeperated(tf.keras.Model):
             y_true (np.ndarray): target
             c (int): positive class
         """
-        dices=[]
-        for i in range(y_true.shape[0]):
-            targ=y_true[i,:,:,:]
-            pred=y_pred[i,:,:,:]
+        targ=y_true
+        pred=y_pred
 
-            pred=np.float32((y_pred>self.threshold_metric)*1)
+        pred=np.float32((y_pred>self.threshold_metric)*1)
 
 
-            TP = np.logical_and(pred == c, targ == c).sum()
-            FN = np.logical_and(pred != c, targ == c).sum()
-            FP = np.logical_and(pred == c, targ != c).sum()
-            
-            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
-            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
-            dices.append(np.float32((2*P*R)/(P+R)))
-                         
-        dice=np.mean(np.asarray(dices))
-        return np.float32(dice)
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+
+        return np.float32((2*P*R)/(P+R))
     
     def get_dice(self,y_true, y_pred):
 
@@ -698,24 +686,20 @@ class UNetDouble(tf.keras.Model):
             y_true (np.ndarray): target
             c (int): positive class
         """
-        dices=[]
-        for i in range(y_true.shape[0]):
-            targ=y_true[i,:,:,:]
-            pred=y_pred[i,:,:,:]
+        targ=y_true
+        pred=y_pred
 
-            pred=np.float32((y_pred>self.threshold_metric)*1)
+        pred=np.float32((y_pred>self.threshold_metric)*1)
 
 
-            TP = np.logical_and(pred == c, targ == c).sum()
-            FN = np.logical_and(pred != c, targ == c).sum()
-            FP = np.logical_and(pred == c, targ != c).sum()
-            
-            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
-            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
-            dices.append(np.float32((2*P*R)/(P+R)))
-                         
-        dice=np.mean(np.asarray(dices))
-        return np.float32(dice)
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+   
+        return np.float32((2*P*R)/(P+R))
     
     def get_dice(self,y_true, y_pred):
 

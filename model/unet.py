@@ -680,12 +680,13 @@ class UNetModel(tf.keras.Model):
         self.use_ema=config.input_shape
         self.ema_momentum=config.ema_momentum
         self.gradient_clip_value=config.gradient_clip_value
+        self.threshold_metric=config.threshold_metric
+
         self.network=self.build_unet()
         self.loss_1_tracker = tf.keras.metrics.Mean(name="DiceLoss")
         self.loss_2_tracker = tf.keras.metrics.Mean(name="CrossEntropyLoss")
-        self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
-        self.f1_score_tracker=tf.keras.metrics.Mean(name="f1")
-        self.f1_xview2_score_tracker=tf.keras.metrics.Mean(name="xview2f1")
+        self.iou_score_tracker= tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        self.f1_xview2_score_tracker=tf.keras.metrics.Mean(name="f1_total")
 
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
@@ -694,7 +695,6 @@ class UNetModel(tf.keras.Model):
             
         self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.special_checkpoint=special_checkpoint
-        self.threshold_metric=config.threshold_metric
         self.loss_weights=config.loss_weights
   
 
@@ -712,7 +712,7 @@ class UNetModel(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-05,)
         self.loss_1=DiceLoss()
         self.loss_2=tf.keras.losses.BinaryCrossentropy()
-        self.iou_score=tf.keras.metrics.BinaryIoU(threshold=self.threshold_metric,target_class_ids=[1])
+        
         
     @property
     def metrics(self):
@@ -720,7 +720,6 @@ class UNetModel(tf.keras.Model):
             self.loss_1_tracker,
             self.loss_2_tracker,
             self.iou_score_tracker,
-            self.f1_score_tracker,
             self.f1_xview2_score_tracker
         ]
         
@@ -773,24 +772,20 @@ class UNetModel(tf.keras.Model):
             y_true (np.ndarray): target
             c (int): positive class
         """
-        dices=[]
-        for i in range(y_true.shape[0]):
-            targ=y_true[i,:,:,:]
-            pred=y_pred[i,:,:,:]
+        targ=y_true
+        pred=y_pred
 
-            pred=np.float32((y_pred>self.threshold_metric)*1)
+        pred=np.float32((y_pred>self.threshold_metric)*1)
 
 
-            TP = np.logical_and(pred == c, targ == c).sum()
-            FN = np.logical_and(pred != c, targ == c).sum()
-            FP = np.logical_and(pred == c, targ != c).sum()
-            
-            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
-            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
-            dices.append(np.float32((2*P*R)/(P+R)))
-                         
-        dice=np.mean(np.asarray(dices))
-        return np.float32(dice)
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+
+        return np.float32((2*P*R)/(P+R))
     
     def get_dice(self,y_true, y_pred):
 
@@ -818,15 +813,12 @@ class UNetModel(tf.keras.Model):
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        iou_score=self.iou_score(local_map,y_local)
-        f1_score=(2*iou_score)/(1+iou_score)
 
         f1_score_xview2=self.get_dice(local_map,y_local)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
-        self.iou_score_tracker.update_state(iou_score)
-        self.f1_score_tracker.update_state(f1_score)
+        self.iou_score_tracker.update_state(local_map,y_local)
         self.f1_xview2_score_tracker.update_state(f1_score_xview2)
         results = {m.name: m.result() for m in self.metrics}
         return results
@@ -841,18 +833,10 @@ class UNetModel(tf.keras.Model):
        
         loss_1=self.loss_1(local_map,y_local)*self.loss_weights[0]
         loss_2=self.loss_2(local_map,y_local)*self.loss_weights[1]
-
-
-        iou_score=self.iou_score(local_map,y_local)
-        f1_score=(2*iou_score)/(1+iou_score)
-
-
         f1_score_xview2=self.get_dice(local_map,y_local)
-
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
-        self.iou_score_tracker.update_state(iou_score)
-        self.f1_score_tracker.update_state(f1_score)
+        self.iou_score_tracker.update_state(local_map,y_local)
         self.f1_xview2_score_tracker.update_state(f1_score_xview2)
         results = {m.name: m.result() for m in self.metrics}
         return results

@@ -11,7 +11,7 @@ from tensorflow.python.platform import tf_logging as logging
 from keras.utils import io_utils
 
 class SaveCheckpoint(tf.keras.callbacks.Callback):
-    def __init__(self,number_epoch, monitor="val_iou",per_epoch=None,initial_value_threshold=0.05,  mode: str = "min",save_best=False):
+    def __init__(self,number_epoch, monitor="val_f1_total",per_epoch=None,initial_value_threshold=0.5,  mode: str = "min",save_best=False):
         super(SaveCheckpoint, self).__init__()
         
         self.per_epoch = per_epoch
