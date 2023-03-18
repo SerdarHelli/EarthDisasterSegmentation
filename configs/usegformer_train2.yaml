@@ -1,6 +1,6 @@
-lr: 0.001
+lr: 0.0001
 weight_decay: 1.0e-04
-use_ema: False
+use_ema: True
 ema_momentum: 0.9999
 seed: 1234
 input_shape:
@@ -16,13 +16,13 @@ train_path:
 test_path:
 - "/content/hold"
 checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer"
-step_warmup: 4000
+step_warmup: 2000
 loss_weights:
   - 1
   - 11
 weights:
   - 0.2
-  - 0.2
+  - 0.4
   - 0.6
   - 0.6
   - 0.4

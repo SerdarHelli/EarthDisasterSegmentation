@@ -259,7 +259,6 @@ class USegFormer(tf.keras.Model):
         self.loss_1=DiceFocalLoss()
         self.loss_2=tf.keras.losses.SparseCategoricalCrossentropy()
 
-        self.loss_2_weighted=WeightedCrossentropy(weights = {0: 1,1: 4})
 
 
     @property
@@ -283,24 +282,20 @@ class USegFormer(tf.keras.Model):
             y_true (np.ndarray): target
             c (int): positive class
         """
-        dices=[]
-        for i in range(y_true.shape[0]):
-            targ=y_true[i,:,:,:]
-            pred=y_pred[i,:,:,:]
+        targ=y_true
+        pred=y_pred
 
-            pred=np.float32((y_pred>self.threshold_metric)*1)
+        pred=np.float32((y_pred>self.threshold_metric)*1)
 
 
-            TP = np.logical_and(pred == c, targ == c).sum()
-            FN = np.logical_and(pred != c, targ == c).sum()
-            FP = np.logical_and(pred == c, targ != c).sum()
-            
-            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
-            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
-            dices.append(np.float32((2*P*R)/(P+R)))
-                         
-        dice=np.mean(np.asarray(dices))
-        return np.float32(dice)
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+
+        return np.float32((2*P*R)/(P+R))
     
     def get_dice(self,y_true, y_pred):
 
