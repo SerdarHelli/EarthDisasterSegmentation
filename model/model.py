@@ -76,7 +76,7 @@ class USegFormer(tf.keras.Model):
                                                               use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
         self.loss_1=DiceFocalLoss()
         self.loss_2=tf.keras.losses.SparseCategoricalCrossentropy()
-
+        self.loss_3=FocalTverskyLoss()
     @property
     def metrics(self):
         return [
@@ -156,7 +156,22 @@ class USegFormer(tf.keras.Model):
         loss=(d1+d2+d3+d4+d0)
         return loss
 
-
+    def loss_3_full_compute(self,y_true, y_pred,weights=None):
+        y_true=tf.cast(y_true,dtype=tf.int32)
+        y_true=tf.one_hot(y_true, 5)
+        d0=self.loss_3(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_3(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_3(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_3(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d0=d0*weights[0]
+            d1=d1*weights[1]
+            d2=d2*weights[2]
+            d3=d3*weights[3]
+            d4=d4*weights[4]
+        loss=(d1+d2+d3+d4+d0)
+        return loss
 
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
@@ -216,7 +231,7 @@ class USegFormer(tf.keras.Model):
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
             loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+            loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -249,7 +264,7 @@ class USegFormer(tf.keras.Model):
     
 
         loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+        loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
 
 
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)

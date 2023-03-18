@@ -262,7 +262,7 @@ class GeneralizedDice(tf.keras.losses.Loss):
         return tf.reduce_mean(dices)
     
 class FocalTverskyLoss(tf.keras.losses.Loss):
-    def __init__(self,alpha=0.5,gamma=4/3, smooth=0.000001, **kwargs):
+    def __init__(self,alpha=0.7,gamma=4/3, smooth=0.000001, **kwargs):
         super().__init__(**kwargs)
         self.smooth=smooth
         self.epsilon=K.epsilon()

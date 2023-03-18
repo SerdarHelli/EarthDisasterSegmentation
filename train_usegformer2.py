@@ -37,7 +37,7 @@ with open(path_conf ,'w') as file:
 
 callbacks=[
     LearningRateStepScheduler(conf.lr,step_warmup=conf.step_warmup),
-    SaveCheckpoint(number_epoch=epochs, monitor="val_total_dice",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
+    SaveCheckpoint(number_epoch=epochs, monitor="val_f1_total",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
     tf.keras.callbacks.TensorBoard(log_dir=checkpoint_path+"/logs",write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True),
     tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_path,"log.csv"), separator=",", append=True)
 
