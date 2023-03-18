@@ -456,3 +456,12 @@ class USegFormer(tf.keras.Model):
 
         results = {m.name: m.result() for m in self.metrics}
         return results
+    
+
+
+
+
+
+
+
+

@@ -599,6 +599,7 @@ class UNet_ResBlock_AutoEncoder(tf.keras.layers.Layer):
         self.unet_hidden_sizes.insert(0,hidden_sizes[0]//2)
         self.norm="batchnorm"
         self.drop_path_rate=drop_path_rate
+
     def build(self,input_shape):
         self.final_activation = tf.keras.layers.Activation("sigmoid")
 
@@ -684,6 +685,8 @@ class UNetModel(tf.keras.Model):
         self.loss_2_tracker = tf.keras.metrics.Mean(name="CrossEntropyLoss")
         self.iou_score_tracker= tf.keras.metrics.Mean(name="iou")
         self.f1_score_tracker=tf.keras.metrics.Mean(name="f1")
+        self.f1_xview2_score_tracker=tf.keras.metrics.Mean(name="xview2f1")
+
         self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
         if not os.path.isdir(self.checkpoint_dir):
             os.makedirs(self.checkpoint_dir)
@@ -718,6 +721,7 @@ class UNetModel(tf.keras.Model):
             self.loss_2_tracker,
             self.iou_score_tracker,
             self.f1_score_tracker,
+            self.f1_xview2_score_tracker
         ]
         
 
@@ -761,7 +765,38 @@ class UNetModel(tf.keras.Model):
             return int(self.checkpoint.epoch)
     
          
+    def compute_tp_fn_fp(self,y_true, y_pred, c=1) :
+        """
+        Computes the number of TPs, FNs, FPs, between a prediction (x) and a target (y) for the desired class (c)
+        Args:
+            y_pred (np.ndarray): prediction
+            y_true (np.ndarray): target
+            c (int): positive class
+        """
+        dices=[]
+        for i in range(y_true.shape[0]):
+            targ=y_true[i,:,:,:]
+            pred=y_pred[i,:,:,:]
 
+            pred=np.float32((y_pred>self.threshold_metric)*1)
+
+
+            TP = np.logical_and(pred == c, targ == c).sum()
+            FN = np.logical_and(pred != c, targ == c).sum()
+            FP = np.logical_and(pred == c, targ != c).sum()
+            
+            R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+            P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+            dices.append(np.float32((2*P*R)/(P+R)))
+                         
+        dice=np.mean(np.asarray(dices))
+        return np.float32(dice)
+    
+    def get_dice(self,y_true, y_pred):
+
+        dice = tf.numpy_function(self.compute_tp_fn_fp, [y_true, y_pred], tf.float32)
+        return dice
+    
 
     def train_step(self, inputs):
         # 1. Get the batch size
@@ -786,12 +821,13 @@ class UNetModel(tf.keras.Model):
         iou_score=self.iou_score(local_map,y_local)
         f1_score=(2*iou_score)/(1+iou_score)
 
+        f1_score_xview2=self.get_dice(local_map,y_local)
 
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
         self.f1_score_tracker.update_state(f1_score)
-
+        self.f1_xview2_score_tracker.update_state(f1_score_xview2)
         results = {m.name: m.result() for m in self.metrics}
         return results
 
@@ -810,9 +846,13 @@ class UNetModel(tf.keras.Model):
         iou_score=self.iou_score(local_map,y_local)
         f1_score=(2*iou_score)/(1+iou_score)
 
+
+        f1_score_xview2=self.get_dice(local_map,y_local)
+
         self.loss_1_tracker.update_state(loss_1)
         self.loss_2_tracker.update_state(loss_2)
         self.iou_score_tracker.update_state(iou_score)
         self.f1_score_tracker.update_state(f1_score)
+        self.f1_xview2_score_tracker.update_state(f1_score_xview2)
         results = {m.name: m.result() for m in self.metrics}
         return results
