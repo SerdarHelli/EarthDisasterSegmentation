@@ -11,6 +11,9 @@ from model.unet import *
 from model.layers import *
 import numpy as np
 import tensorflow.keras.backend as K
+import tensorflow as tf
+
+from model.others import UnetSpatial_AutoEncoder
 
 def convolution_block(
     block_input,
@@ -50,17 +53,7 @@ def DilatedSpatialPyramidPooling(dspp_input):
     return output
 
 
-import tensorflow as tf
 
-import os
-from model.loss import *
-import os
-import datetime
-from utils.utils import instantiate_from_config
-from model.unet import *
-from model.layers import *
-from tensorflow import keras
-import tensorflow.keras.backend as K
 
 def convolution_block(
     block_input,
@@ -109,7 +102,7 @@ def build_uspatialcondition_model(
     strides,
     patch_sizes,
     num_res_blocks=2,
-    activation_fn=keras.activations.swish,
+    activation_fn=tf.keras.activations.swish,
     first_conv_channels=16,
 ):
     
@@ -119,11 +112,6 @@ def build_uspatialcondition_model(
     hiddens_pre0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspre3")
     hiddenspre=[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3]
 
-    hiddens_post3= tf.keras.Input(shape=(16,16,widths[-1]),name="hiddenspost0")
-    hiddens_post2= tf.keras.Input(shape=(32,32,widths[-2]),name="hiddenspost1")
-    hiddens_post1= tf.keras.Input(shape=(64,64,widths[-3]),name="hiddenspost2")
-    hiddens_post0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspost3")
-    hiddenspost=[hiddens_post0,hiddens_post1,hiddens_post2,hiddens_post3]
 
     post_input = tf.keras.layers.Input(
         shape=input_shape, name="post_image"
@@ -132,50 +120,33 @@ def build_uspatialcondition_model(
         shape=context_shape, name="pre_mask"
     )
 
-       
+    x=convolution_block(post_input,num_filters=widths[0])
+    x=convolution_block(x,num_filters=widths[0])
+    x=tf.keras.layers.Maxpooling2D(pool_size=(2,2))(x)
+    x=convolution_block(x,num_filters=widths[1])
+    x=convolution_block(x,num_filters=widths[1])
+    x=tf.keras.layers.Maxpooling2D(pool_size=(2,2))(x)
+    x=convolution_block(x,num_filters=widths[2])
+    x=convolution_block(x,num_filters=widths[2])
+    x=tf.keras.layers.Maxpooling2D(pool_size=(2,2))(x)
+    x=convolution_block(x,num_filters=widths[3])
+    x=convolution_block(x,num_filters=widths[3]*2)
 
-    context_sub1=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(post_input)
-    context_sub2=  tf.keras.layers.Conv2D(16, 3, padding="same", kernel_initializer = 'he_normal')(pre_mask_input)
-    context= tf.keras.layers.Concatenate()([context_sub1,context_sub2])
 
-    context = convolution_block(context,num_filters=widths[0])
-    context = convolution_block(context,num_filters=widths[0])
-    context=  tf.keras.layers.MaxPooling2D(pool_size=(2, 2))(context)
-    context = convolution_block(context,num_filters=widths[1])
-    context = convolution_block(context,num_filters=widths[1])
     hiddens=[]
-    hiddens.append(context)
-
-    shapes=[1,2,3,4]
-    for idx,(hidden_pre, hidden_post) in enumerate(zip(hiddenspre, hiddenspost)):
+    for idx,hidden_pre in enumerate(hiddenspre):
 
         hidden_pre=DilatedSpatialPyramidPooling(hidden_pre)
-        hidden_post=DilatedSpatialPyramidPooling(hidden_post)
-        x= tf.keras.layers.Concatenate()([hidden_pre,hidden_post])                   
+        x=convolution_block(x,num_filters=64)
+        x=tf.keras.layers.Dropout(0.25)(x)
+        hidden_pre=tf.keras.layers.Resizing(128,128)(hidden_pre)
+        hiddens.append(hidden_pre)
 
-        for j in range(shapes[idx]):
-            for _ in range(num_res_blocks):
-              if j==0:
-                j=1
-              x=convolution_block(x,num_filters=widths[j+2],dilation_rate=j*4)
 
-            x = UpSample(widths[j+2],norm="batchnorm")(x)
-        hiddens.append(x)
-    x= tf.keras.layers.Concatenate()(hiddens)
-    for _ in range(num_res_blocks):
-            x=convolution_block(x,num_filters=widths[1])
+    y= tf.keras.layers.Concatenate()(hiddens)
+    x= tf.keras.layers.Concatenate()([x,y])
 
-    x=DilatedSpatialPyramidPooling(x)
-    x=convolution_block(x,num_filters=widths[1])
-    x=AttentionGate(widths[1],do_upsample=False)(context,x)
-    x = UpSample(widths[1],norm="batchnorm")(x)
 
-    for _ in range(num_res_blocks):
-            convolution_block(x,num_filters=widths[0])
-
-    context = UpSample(widths[0],norm="batchnorm")(context)
-
-    x=AttentionGate(widths[0],do_upsample=False)(context,x)
 
     x = tf.keras.layers.Conv2D(widths[0], 3, padding="same", kernel_initializer = 'he_normal')(x)
     x=tf.keras.layers.BatchNormalization()(x)
@@ -184,8 +155,36 @@ def build_uspatialcondition_model(
     x = tf.keras.layers.Conv2D(5,1, padding="same", )(x)
     output=tf.keras.layers.Activation("softmax")(x)
 
-    return tf.keras.Model([post_input,pre_mask_input,hiddenspre,hiddenspost], output, name="uspatial_net")
+    return tf.keras.Model([post_input,pre_mask_input,hiddenspre], output, name="uspatial_net")
 
+def build_uspatial2condition_model(
+    input_shape,
+    context_shape,
+    widths,
+    num_attention_heads,
+    sr_ratios,
+    has_attention,
+    strides,
+    patch_sizes,
+    num_res_blocks=2,
+    activation_fn=tf.keras.activations.swish,
+    first_conv_channels=16,
+):
+    post_input = tf.keras.layers.Input(
+        shape=input_shape, name="post_image"
+    )
+    pre_mask_input = tf.keras.layers.Input(
+        shape=context_shape, name="pre_mask"
+    )
+    hiddens_pre3= tf.keras.Input(shape=(16,16,widths[-1]),name="hiddenspre0")
+    hiddens_pre2= tf.keras.Input(shape=(32,32,widths[-2]),name="hiddenspre1")
+    hiddens_pre1= tf.keras.Input(shape=(64,64,widths[-3]),name="hiddenspre2")
+    hiddens_pre0= tf.keras.Input(shape=(128,128,widths[-4]),name="hiddenspre3")
+    hiddenspre=[hiddens_pre0,hiddens_pre1,hiddens_pre2,hiddens_pre3]
+
+    output=UnetSpatial_AutoEncoder(hidden_sizes=widths,unet_num_res_blocks=num_res_blocks,drop_path_rate=0.1)(post_input,pre_mask_input,hiddenspre)
+
+    return tf.keras.Model([post_input,pre_mask_input,hiddenspre], output, name="uspatial_net")
 
 
 class USegFormer(tf.keras.Model):
@@ -390,10 +389,9 @@ class USegFormer(tf.keras.Model):
 
         with tf.GradientTape() as tape:
             y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
-            y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
 
 
-            y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre,hiddens_post], training=True)
+            y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre], training=True)
             #upsample_resolution = tf.shape(multilabel_map)
      
             #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
@@ -423,11 +421,10 @@ class USegFormer(tf.keras.Model):
     def test_step(self, inputs):
         # 1. Get the batch size
         (x_pre,x_post),(local_map,multilabel_map)=inputs
-
         y_local_pre,hiddens_pre=self.unet_layer(x_pre,training=False)
-        y_local_post,hiddens_post=self.unet_layer(x_post,training=False)
-        
-        y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre,hiddens_post], training=True)
+
+
+        y_multilabel_resized = self.network([x_post,y_local_pre,hiddens_pre], training=True)
         #upsample_resolution = tf.shape(multilabel_map)
   
         #y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")

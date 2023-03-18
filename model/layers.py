@@ -137,43 +137,56 @@ class SEResBlock(tf.keras.layers.Layer):
 
         return output
 
-def convolution_block(
-    block_input,
-    num_filters=256,
-    kernel_size=3,
-    dilation_rate=1,
-    padding="same",
-    use_bias=False,
-):
-    x = tf.keras.layers.Conv2D(
-        num_filters,
-        kernel_size=kernel_size,
-        dilation_rate=dilation_rate,
-        padding="same",
-        use_bias=use_bias,
-        kernel_initializer=tf.keras.initializers.HeNormal(),
-    )(block_input)
-    x = tf.keras.layers.BatchNormalization()(x)
-    return tf.nn.relu(x)
 
 
-def DilatedSpatialPyramidPooling(dspp_input):
-    dims = dspp_input.shape
-    x = tf.keras.layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(dspp_input)
-    x = convolution_block(x, kernel_size=1, use_bias=True)
-    out_pool = tf.keras.layers.UpSampling2D(
-        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
-    )(x)
+class DilatedConv(tf.keras.layers.Layer):
+    def __init__(self, filters,kernel_size=1,dilation_rate=1,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
+        self.kernel_size=kernel_size
+        self.dilation_rate=dilation_rate
+        self.conv_1 = tf.keras.layers.Conv2D(self.filters, kernel_size,dilation_rate=dilation_rate, padding="same", kernel_initializer = 'he_normal')
+        self.norm1 = getNorm(self.norm_str)
 
-    out_1 = convolution_block(dspp_input, kernel_size=1, dilation_rate=1)
-    out_6 = convolution_block(dspp_input, kernel_size=3, dilation_rate=6)
-    out_12 = convolution_block(dspp_input, kernel_size=3, dilation_rate=12)
-    out_18 = convolution_block(dspp_input, kernel_size=3, dilation_rate=18)
+    def call(self, input_tensor: tf.Tensor):
+        x = self.conv_1(input_tensor)
+        x = self.norm1(x)
+        return tf.nn.relu(x)
 
-    x = tf.keras.layers.Concatenate(axis=-1)([out_pool, out_1, out_6, out_12, out_18])
-    output = convolution_block(x, kernel_size=1)
-    return output
 
+class DilatedSpatialPyramidPooling(tf.keras.layers.Layer):
+    def __init__(self, filters,drop_path_rate=0.25,norm="batchnorm", **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        self.norm_str=norm
+        self.drop_path_rate=drop_path_rate
+
+    def build(self, input_shape):
+        self.x_shape = input_shape
+        self.conv_1 = DilatedConv(self.filters,kernel_size=1, dilation_rate=1)
+        self.conv_2 = DilatedConv(self.filters,kernel_size=1, dilation_rate=1)
+        self.conv_3 = DilatedConv(self.filters,kernel_size=3, dilation_rate=6)
+        self.conv_4 = DilatedConv(self.filters,kernel_size=3, dilation_rate=12)
+        self.conv_5 = DilatedConv(self.filters,kernel_size=3, dilation_rate=18)
+        self.conv_6 = DilatedConv(self.filters,kernel_size=3, dilation_rate=1)
+
+        self.pooling = tf.keras.layers.AveragePooling2D(pool_size=(input_shape[-3], input_shape[-2]))
+
+        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
+
+    def call(self, input_tensor: tf.Tensor):
+        x = self.pooling(input_tensor)
+        x = self.conv_1(x)
+        out_pool = tf.image.resize(x,(self.x_shape[-3] , self.x_shape[-2] ))
+        out_1 = self.conv_2(input_tensor)
+        out_6 = self.conv_3(input_tensor)
+        out_12 = self.conv_4(input_tensor)
+        out_18 =self.conv_5(input_tensor)
+        x=tf.concat([out_pool, out_1, out_6,out_12, out_18],axis=-1)
+        x=self.conv_6(x)
+        x=self.droput(x)
+        return x
 
 class AttentionGate(tf.keras.layers.Layer):
     def __init__(self, filters,do_upsample=True,**kwargs):
