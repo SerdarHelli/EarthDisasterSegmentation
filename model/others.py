@@ -41,7 +41,7 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
 
                 if hidden_size in self.unet_hidden_sizes[3:]:
                   idx_x=idx_x+1
-                  x=SpatialTransformer(hidden_size//4)
+                  x=SpatialTransformer(hidden_size//8,hidden_size//2)
                   self.encoder_blocks.append(x)
 
                 if hidden_size != self.unet_hidden_sizes[-1]:
@@ -50,7 +50,7 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
                   x = tf.keras.layers.MaxPooling2D(pool_size=(2, 2))
                   self.encoder_blocks.append(x)
 
-        self.middle_block=SpatialTransformer(self.unet_hidden_sizes[-1]//4)
+        self.middle_block=SpatialTransformer(self.unet_hidden_sizes[-1]//8,self.unet_hidden_sizes[-1]//2)
 
         for i,hidden_size in reversed(list(enumerate(self.unet_hidden_sizes))):
                 for _ in range(self.unet_num_res_blocks):
@@ -58,7 +58,7 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
                     self.decoder_blocks.append(x)
                 if hidden_size in self.unet_hidden_sizes[3:]:
                   idx_x=idx_x+1
-                  x=SpatialTransformer(hidden_size//4)
+                  x=SpatialTransformer(hidden_size//8,hidden_size//2)
                   self.decoder_blocks.append(x)
                 if i!=0:
 
@@ -66,7 +66,7 @@ class UnetSpatial_AutoEncoder(tf.keras.layers.Layer):
                    self.decoder_blocks.append(x)
 
         self.pyramids= []         
-        for hidden_size in range(self.unet_hidden_sizes[2:]):         
+        for hidden_size in self.unet_hidden_sizes[2:]:         
             x=DilatedSpatialPyramidPooling(hidden_size//2)
             self.pyramids.append(x)
 
