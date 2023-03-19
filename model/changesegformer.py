@@ -598,11 +598,11 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
         hidden_states = self.batch_norm(hidden_states, training=training)
         hidden_states = self.activation(hidden_states)
-        hidden_states=self.DilatedSpatialPyramidPooling(hidden_states, training=training)
+        hidden_states=  self.DilatedSpatialPyramidPooling(hidden_states, training=training)
         hidden_states = self.conv2(hidden_states, training=training)
         hidden_states = self.batch_norm2(hidden_states)
         hidden_states = self.activation2(hidden_states)
-        hidden_states = self.pixxel_shuffleconv(hidden_states)
+        hidden_states = self.pixxel_shuffleconv(hidden_states, training=training)
 
         hidden_states = tf.nn.depth_to_space(hidden_states, 2)
         # logits of shape (batch_size, height/4, width/4, num_labels)

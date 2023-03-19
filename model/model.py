@@ -9,6 +9,265 @@ import datetime
 from utils.utils import instantiate_from_config
 import json 
 
+from model.changesegformer import ChangeSegformerForSemanticSegmentation
+
+class ChangeSegFormer(tf.keras.Model):
+    def __init__(self, config,checkpoint_path,unet_config,unet_checkpoint_path,
+                 special_checkpoint=None,
+                 ):
+        super(USegFormer,self).__init__()
+        self.config=config
+        self.lr=config.lr
+        self.weight_decay=config.weight_decay
+        self.shape_input=config.input_shape
+        self.use_ema=config.input_shape
+        self.ema_momentum=config.ema_momentum
+        self.gradient_clip_value=config.gradient_clip_value
+        self.segformer_layer = ChangeSegformerForSemanticSegmentation(config)
+        self.network=self.build_usegformer()
+        self.network.summary()
+        self.threshold_metric=config.threshold_metric
+        self.loss_weights=config.loss_weights
+        self.loss_1_tracker = tf.keras.metrics.Mean(name="Dice_loss")
+        self.loss_2_tracker = tf.keras.metrics.Mean(name="Crossentropy_Loss")
+        self.f1_total_tracker=tf.keras.metrics.Mean(name="f1_total")
+        self.f1_nodamage_tracker     =    tf.keras.metrics.Mean(name="f1_nodamage")
+        self.f1_minordamage_tracker  = tf.keras.metrics.Mean(name="f1_minordamage")
+        self.f1_majordamage_tracker  = tf.keras.metrics.Mean(name="f1_majordamage")
+        self.f1_destroyed_tracker    = tf.keras.metrics.Mean(name="f1_destroyed")
+        self.f1_background_tracker = tf.keras.metrics.Mean(name="f1_background")
+        self.class_weights=config.weights
+
+
+        self.checkpoint_dir = os.path.join(checkpoint_path,"checkpoint")
+        if not os.path.isdir(self.checkpoint_dir):
+            os.makedirs(self.checkpoint_dir)
+            print("New Checkpoint Folder Initialized...")
+            
+        self.checkpoint_prefix = os.path.join(self.checkpoint_dir, "ckpt")+datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.special_checkpoint=special_checkpoint
+    
+
+    def build_usegformer(self,):
+        self.unet_layer.trainable=False
+        input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
+        input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
+        output=self.segformer_layer(input_post,input_pre)
+        model = tf.keras.Model(inputs=[input_pre,input_post], outputs=[output])
+        return model
+
+
+    def compile(self,**kwargs):
+        super().compile(**kwargs)
+        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
+                                                              use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
+        self.loss_1=DiceFocalLoss()
+        self.loss_2=tf.keras.losses.SparseCategoricalCrossentropy()
+        self.loss_3=FocalTverskyLoss()
+
+    @property
+    def metrics(self):
+        return [
+            self.loss_1_tracker,
+            self.loss_2_tracker,
+            self.f1_total_tracker,
+            self.f1_nodamage_tracker,    
+            self.f1_minordamage_tracker ,
+            self.f1_majordamage_tracker ,
+            self.f1_destroyed_tracker   ,
+            self.f1_background_tracker,
+        ]
+    
+
+    def compute_tp_fn_fp(self,y_true, y_pred, c=1) :
+        """
+        Computes the number of TPs, FNs, FPs, between a prediction (x) and a target (y) for the desired class (c)
+        Args:
+            y_pred (np.ndarray): prediction
+            y_true (np.ndarray): target
+            c (int): positive class
+        """
+        targ=y_true
+        pred=y_pred
+
+        pred=np.float32((y_pred>self.threshold_metric)*1)
+
+
+        TP = np.logical_and(pred == c, targ == c).sum()
+        FN = np.logical_and(pred != c, targ == c).sum()
+        FP = np.logical_and(pred == c, targ != c).sum()
+        
+        R=np.float32((TP+1e-6)/(TP+FN+1e-6))
+        P=np.float32((TP+1e-6)/(TP+FP+1e-6))
+
+        return np.float32((2*P*R)/(P+R))
+    
+    def get_dice(self,y_true, y_pred):
+
+        dice = tf.numpy_function(self.compute_tp_fn_fp, [y_true, y_pred], tf.float32)
+        return dice
+    
+
+    def dice_classes_score(self,y_true, y_pred):
+        y_true=tf.cast(y_true,dtype=tf.int32)
+        y_true=tf.one_hot(y_true, 5)
+        dices={}
+        d0=self.get_dice(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.get_dice(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.get_dice(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.get_dice(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.get_dice(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+
+        dices["nodamage"]=d1
+        dices["minordamage"]=d2
+        dices["majordamage"]=d3
+        dices["destroyed"]=d4
+        dices["background"]=d0
+        dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
+
+        return dices
+    
+    def loss1_full_compute(self,y_true, y_pred,weights=None):
+        y_true=tf.cast(y_true,dtype=tf.int32)
+        y_true=tf.one_hot(y_true, 5)
+        d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d0=d0*weights[0]
+            d1=d1*weights[1]
+            d2=d2*weights[2]
+            d3=d3*weights[3]
+            d4=d4*weights[4]
+        loss=(d1+d2+d3+d4+d0)
+        return loss
+
+    def loss_3_full_compute(self,y_true, y_pred,weights=None):
+        y_true=tf.cast(y_true,dtype=tf.int32)
+        y_true=tf.one_hot(y_true, 5)
+        d0=self.loss_3(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_3(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_3(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_3(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+        if weights:
+            d0=d0*weights[0]
+            d1=d1*weights[1]
+            d2=d2*weights[2]
+            d3=d3*weights[3]
+            d4=d4*weights[4]
+        loss=(d1+d2+d3+d4+d0)
+        return loss
+
+    def load(self,usage="train",return_epoch_number=True):
+          self.checkpoint = tf.train.Checkpoint(
+                                                network=self.network,
+                                                optimizer=self.optimizer,
+                                                step=tf.Variable(0),
+                                                epoch=tf.Variable(0)
+                                        )
+      
+          try:
+            latest_checkpoint=tf.train.latest_checkpoint(self.checkpoint_dir)
+          except:
+            latest_checkpoint=None
+            pass
+
+          #tf.train.Checkpoint.restore(...).expect_partial() ignore errors
+          if latest_checkpoint!=None and self.special_checkpoint==None:
+              if usage=="eval":
+                  self.checkpoint.restore(latest_checkpoint).expect_partial()
+              else:
+                  self.checkpoint.restore(latest_checkpoint)
+              tf.print("-----------Restoring from {}-----------".format(latest_checkpoint))
+              tf.print("-----------Step {}-----------".format(int(self.checkpoint.step)))
+
+          elif self.special_checkpoint!=None:
+              if usage=="eval":
+                  self.checkpoint.restore(self.special_checkpoint).expect_partial()
+              else:
+                  self.checkpoint.restore(self.special_checkpoint)
+              tf.print("-----------Restoring from {}-----------".format(
+                  self.special_checkpoint))
+              tf.print("-----------Step {}-----------".format(int(self.checkpoint.step)))
+
+          else:
+
+            tf.print("-----------Initializing from scratch-----------")
+          
+          if return_epoch_number==True:
+            return int(self.checkpoint.epoch)
+    
+         
+
+
+    def train_step(self, inputs):
+        # 1. Get the batch size
+        self.checkpoint.step.assign_add(1)
+        tf.summary.scalar('steps', data=self.checkpoint.step, step=self.checkpoint.step)
+
+        (x_pre,x_post),(local_map,multilabel_map)=inputs
+
+
+        with tf.GradientTape() as tape:
+
+            y_multilabel = self.network([x_pre,x_post], training=True)
+            upsample_resolution = tf.shape(multilabel_map)
+     
+            y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+
+            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+            loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+            loss=loss_1+loss_2
+
+        gradients = tape.gradient(loss, self.network.trainable_weights)
+        self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
+
+        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+
+        self.f1_total_tracker.update_state(dices["total_dice"])   
+        self.f1_nodamage_tracker.update_state(dices["nodamage"])    
+        self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
+        self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
+        self.f1_destroyed_tracker.update_state(dices["destroyed"])   
+        self.f1_background_tracker.update_state(dices["background"])
+        self.loss_1_tracker.update_state(loss_1)
+        self.loss_2_tracker.update_state(loss_2)
+
+        results = {m.name: m.result() for m in self.metrics}
+        return results
+
+
+    def test_step(self, inputs):
+        # 1. Get the batch size
+        (x_pre,x_post),(local_map,multilabel_map)=inputs
+
+        y_multilabel = self.network([x_pre,x_post], training=False)
+        upsample_resolution = tf.shape(multilabel_map)
+  
+        y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+
+    
+
+        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+        loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+
+
+        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+
+        self.f1_total_tracker.update_state(dices["total_dice"])   
+        self.f1_nodamage_tracker.update_state(dices["nodamage"])    
+        self.f1_minordamage_tracker.update_state(dices["minordamage"]) 
+        self.f1_majordamage_tracker.update_state(dices["majordamage"]) 
+        self.f1_destroyed_tracker.update_state(dices["destroyed"])   
+        self.f1_background_tracker.update_state(dices["background"])
+        self.loss_1_tracker.update_state(loss_1)
+        self.loss_2_tracker.update_state(loss_2)
+
+        results = {m.name: m.result() for m in self.metrics}
+        return results
 
 
 class USegFormer(tf.keras.Model):
@@ -280,9 +539,6 @@ class USegFormer(tf.keras.Model):
 
         results = {m.name: m.result() for m in self.metrics}
         return results
-
-
-
 
 
 class USegFormerSeperated(tf.keras.Model):
