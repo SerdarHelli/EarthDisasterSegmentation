@@ -15,7 +15,7 @@ class ChangeSegFormer(tf.keras.Model):
     def __init__(self, config,checkpoint_path,unet_config,unet_checkpoint_path,
                  special_checkpoint=None,
                  ):
-        super(USegFormer,self).__init__()
+        super(ChangeSegFormer,self).__init__()
         self.config=config
         self.lr=config.lr
         self.weight_decay=config.weight_decay
@@ -49,7 +49,6 @@ class ChangeSegFormer(tf.keras.Model):
     
 
     def build_usegformer(self,):
-        self.unet_layer.trainable=False
         input_post= tf.keras.Input(shape=self.shape_input,name="post_image")
         input_pre = tf.keras.Input(shape=self.shape_input,name="pre_image")
         output=self.segformer_layer(input_post,input_pre)
@@ -219,7 +218,7 @@ class ChangeSegFormer(tf.keras.Model):
             y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
 
             loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+            loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
@@ -252,7 +251,7 @@ class ChangeSegFormer(tf.keras.Model):
     
 
         loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss_3_full_compute(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+        loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
 
 
         dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)

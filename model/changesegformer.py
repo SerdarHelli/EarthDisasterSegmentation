@@ -252,7 +252,8 @@ class TFSegformerMLP(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         decoder_hidden_size=config.decoder_hidden_size
         self.norm=tf.keras.layers.LayerNormalization()
-        self.proj = tf.keras.layers.Dense(decoder_hidden_size, name="proj")
+        self.proj = tf.keras.layers.Conv2D(decoder_hidden_size, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        
         self.dropout_layer=None
         if dropout>0:
             self.dropout_layer=tf.keras.layers.Dropout(dropout)
@@ -545,13 +546,13 @@ class TFSegformerDecodeHead(tf.keras.Model):
         self.config=config
         mlps = []
         for i in range(config.num_encoder_blocks):
-            mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
+            mlp = DilatedSpatialPyramidPooling(config.decoder_hidden_size//2, name=f"DilatedSpatialPyramidPooling_c.{i}")
             mlps.append(mlp)
         self.mlps = mlps
 
         # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = tf.keras.layers.Conv2D(
-            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse",activity_regularizer=tf.keras.regularizers.L2(1e-6)
+            filters=config.decoder_hidden_size, kernel_size=1,padding="same", use_bias=False, name="linear_fuse",activity_regularizer=tf.keras.regularizers.L2(1e-6)
         )
         self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
         self.activation = tf.keras.layers.Activation("relu")
@@ -563,7 +564,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
         self.batch_norm2= tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
         self.activation2 = tf.keras.layers.Activation("relu")
         self.DilatedSpatialPyramidPooling=DilatedSpatialPyramidPooling(filters=128)
-        self.pixxel_shuffleconv = tf.keras.layers.Conv2D(5 * (2 ** 2), 3, padding="same", kernel_initializer = 'he_normal')
+        self.pixxel_shuffleconv = tf.keras.layers.Conv2D(config.num_labels* (2 ** 2), 3, padding="same", kernel_initializer = 'he_normal')
 
         self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1, name="classifier")
 
@@ -581,14 +582,14 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
             # unify channel dimension
             
-            encoder_hidden_state=(encoder_hidden_state_post-encoder_hidden_state_pre)
+            encoder_hidden_state=encoder_hidden_state_post-encoder_hidden_state_pre
             encoder_hidden_state = tf.transpose(encoder_hidden_state, perm=[0, 2, 3, 1])
             height = tf.shape(encoder_hidden_state)[1]
             width = tf.shape(encoder_hidden_state)[2]
             encoder_hidden_state = mlp(encoder_hidden_state)
 
             # upsample
-            temp_state = tf.transpose(encoder_hidden_state_post[0], perm=[0, 2, 3, 1])
+            temp_state = tf.transpose(encoder_hidden_states_post[0], perm=[0, 2, 3, 1])
             upsample_resolution = tf.shape(temp_state)[1:-1]
             
             encoder_hidden_state = tf.image.resize(encoder_hidden_state, size=upsample_resolution, method="bilinear")
@@ -602,9 +603,9 @@ class TFSegformerDecodeHead(tf.keras.Model):
         hidden_states = self.conv2(hidden_states, training=training)
         hidden_states = self.batch_norm2(hidden_states)
         hidden_states = self.activation2(hidden_states)
-        hidden_states = self.pixxel_shuffleconv(hidden_states, training=training)
+       # hidden_states = self.pixxel_shuffleconv(hidden_states, training=training)
 
-        hidden_states = tf.nn.depth_to_space(hidden_states, 2)
+       # hidden_states = tf.nn.depth_to_space(hidden_states, 2)
         # logits of shape (batch_size, height/4, width/4, num_labels)
         logits = self.classifier(hidden_states)
 
@@ -613,7 +614,8 @@ class TFSegformerDecodeHead(tf.keras.Model):
 class ChangeSegformerForSemanticSegmentation(tf.keras.Model):
     def __init__(self, config, **kwargs):
         super().__init__( **kwargs)
-        self.segformer = TFSegformerMainLayer(config, name="segformer")
+        self.segformer_post = TFSegformerMainLayer(config, name="segformer_post")
+        self.segformer_pre = TFSegformerMainLayer(config, name="segformer_pre")
         self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
         self.config=config
         self.final_activation=tf.keras.layers.Activation("softmax")
@@ -632,14 +634,14 @@ class ChangeSegformerForSemanticSegmentation(tf.keras.Model):
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
 
-        outputs_post = self.segformer(
+        outputs_post = self.segformer_post(
             pixel_values_post,
             output_attentions=output_attentions,
             output_hidden_states=True,  # we need the intermediate hidden states
             return_dict=return_dict,
         )
-        outputs_pre = self.segformer(
-                pixel_values_post,
+        outputs_pre = self.segformer_pre(
+                pixel_values_pre,
                 output_attentions=output_attentions,
                 output_hidden_states=True,  # we need the intermediate hidden states
                 return_dict=return_dict,
