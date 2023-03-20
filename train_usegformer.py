@@ -4,7 +4,7 @@ import tensorflow as tf
 from model.model import USegFormer,USegFormerSeperated,ChangeSegFormer
 from model.callbacks import *
 import os
-from data.dataloader import DataGen,EvalGen
+from data.dataloader2 import DataGen,EvalGen
 
 
 
