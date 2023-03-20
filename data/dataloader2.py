@@ -14,12 +14,10 @@ class DataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,_,_=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
-        self.pre_target_files=pre_target_files
         self.post_dis_files=post_dis_files
-        self.post_target_files=post_target_files
         self.n = len(self.post_dis_files)
         self.batch_size=batch_size
         self.img_size=img_size
@@ -29,19 +27,19 @@ class DataGen(tf.keras.utils.Sequence):
         self.transform = A.Compose([
               A.CropNonEmptyMaskIfExists (width=img_size, height=img_size,always_apply=True),
               A.RandomRotate90(p=0.2),
-              A.Flip(p=0.6),
+              A.Flip(p=0.4),
 
               A.OneOf([
                   A.MotionBlur(p=0.2),
-                  A.MedianBlur(blur_limit=3, p=0.1),
-                  A.Blur(blur_limit=3, p=0.1),
+                  A.MedianBlur(blur_limit=2, p=0.1),
+                  A.Blur(blur_limit=2, p=0.1),
               ], p=0.2),
               A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.3),
               A.OneOf([
                   A.OpticalDistortion(p=0.3),
                   A.GridDistortion(p=0.1),
               ], p=0.2),        
-              A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=0.1, val_shift_limit=0.1, p=0.2),
+              A.HueSaturationValue(hue_shift_limit=5, sat_shift_limit=0.1, val_shift_limit=0.1, p=0.2),
               A.RandomBrightnessContrast(p=0.2), ],
               additional_targets={"image1": "image","mask1": "mask"},
 
@@ -154,12 +152,10 @@ class EvalGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,_,_=get_idx_all_path(path_list)
 
         self.pre_dis_files=pre_dis_files
-        self.pre_target_files=pre_target_files
         self.post_dis_files=post_dis_files
-        self.post_target_files=post_target_files
         self.n = len(self.post_dis_files)
         self.batch_size=1
         self.img_size=img_size
