@@ -3,6 +3,7 @@
 import tensorflow as tf
 import math
 from typing import Optional
+from model.layers import *
 
 class TFSegformerDropPath(tf.keras.layers.Layer):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
@@ -252,7 +253,7 @@ class TFSegformerMLP(tf.keras.layers.Layer):
         super().__init__(**kwargs)
         decoder_hidden_size=config.decoder_hidden_size
         self.norm=tf.keras.layers.LayerNormalization()
-        self.proj = tf.keras.layers.Conv2D(decoder_hidden_size, kernel_size=3,padding="same", kernel_initializer = 'he_normal')
+        self.proj = tf.keras.layers.Dense(decoder_hidden_size)
         
         self.dropout_layer=None
         if dropout>0:
@@ -479,65 +480,7 @@ class TFSegformerMainLayer(tf.keras.Model):
                 return (sequence_output,) + encoder_outputs[1:]
         hidden_states=hidden_states if output_hidden_states else encoder_outputs[1]
         return sequence_output,hidden_states,encoder_outputs[-1]
-    
-def getNorm(norm_str,eps=1e-6):
-    x=None
-    if norm_str=="batchnorm":
-        x= tf.keras.layers.BatchNormalization(epsilon=eps)
-    if norm_str=="layernorm":
-        x= tf.keras.layers.LayerNormalization(epsilon=eps)
-    if not x:
-        raise("Invalid Normalization ")
-    return x
-   
-class DilatedConv(tf.keras.layers.Layer):
-    def __init__(self, filters,kernel_size=1,dilation_rate=1,norm="batchnorm", **kwargs):
-        super().__init__(**kwargs)
-        self.filters = filters
-        self.norm_str=norm
-        self.kernel_size=kernel_size
-        self.dilation_rate=dilation_rate
-        self.conv_1 = tf.keras.layers.Conv2D(self.filters, kernel_size,dilation_rate=dilation_rate, padding="same", kernel_initializer = 'he_normal')
-        self.norm1 = getNorm(self.norm_str)
 
-    def call(self, input_tensor: tf.Tensor):
-        x = self.conv_1(input_tensor)
-        x = self.norm1(x)
-        return tf.nn.relu(x)
-
-
-class DilatedSpatialPyramidPooling(tf.keras.layers.Layer):
-    def __init__(self, filters,drop_path_rate=0.25,norm="batchnorm", **kwargs):
-        super().__init__(**kwargs)
-        self.filters = filters
-        self.norm_str=norm
-        self.drop_path_rate=drop_path_rate
-
-    def build(self, input_shape):
-        self.x_shape = input_shape
-        self.conv_1 = DilatedConv(self.filters,kernel_size=1, dilation_rate=1)
-        self.conv_2 = DilatedConv(self.filters,kernel_size=1, dilation_rate=1)
-        self.conv_3 = DilatedConv(self.filters,kernel_size=3, dilation_rate=6)
-        self.conv_4 = DilatedConv(self.filters,kernel_size=3, dilation_rate=12)
-        self.conv_5 = DilatedConv(self.filters,kernel_size=3, dilation_rate=18)
-        self.conv_6 = DilatedConv(self.filters,kernel_size=3, dilation_rate=1)
-
-        self.pooling = tf.keras.layers.AveragePooling2D(pool_size=(input_shape[-3], input_shape[-2]))
-
-        self.droput=tf.keras.layers.Dropout(self.drop_path_rate)
-
-    def call(self, input_tensor: tf.Tensor):
-        x = self.pooling(input_tensor)
-        x = self.conv_1(x)
-        out_pool = tf.image.resize(x,(self.x_shape[-3] , self.x_shape[-2] ))
-        out_1 = self.conv_2(input_tensor)
-        out_6 = self.conv_3(input_tensor)
-        out_12 = self.conv_4(input_tensor)
-        out_18 =self.conv_5(input_tensor)
-        x=tf.concat([out_pool, out_1, out_6,out_12, out_18],axis=-1)
-        x=self.conv_6(x)
-        x=self.droput(x)
-        return x         
 
 class TFSegformerDecodeHead(tf.keras.Model):
     def __init__(self,config, **kwargs):
@@ -546,7 +489,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
         self.config=config
         mlps = []
         for i in range(config.num_encoder_blocks):
-            mlp = DilatedSpatialPyramidPooling(config.decoder_hidden_size//2, name=f"DilatedSpatialPyramidPooling_c.{i}")
+            mlp = mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
             mlps.append(mlp)
         self.mlps = mlps
 
@@ -558,15 +501,14 @@ class TFSegformerDecodeHead(tf.keras.Model):
         self.activation = tf.keras.layers.Activation("relu")
 
 
-        self.conv2 = tf.keras.layers.Conv2D(
-            filters=128, kernel_size=3,padding="same", kernel_initializer = 'he_normal'
-        )
-        self.batch_norm2= tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
-        self.activation2 = tf.keras.layers.Activation("relu")
+ 
         self.DilatedSpatialPyramidPooling=DilatedSpatialPyramidPooling(filters=128)
-        self.pixxel_shuffleconv = tf.keras.layers.Conv2D(config.num_labels* (2 ** 2), 3, padding="same", kernel_initializer = 'he_normal')
+        self.upsample1=UpSample(128)
+        self.resblock1=ResBlock(64)
+        self.upsample2=UpSample(32)
+        self.resblock2=ResBlock(32)
 
-        self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1, name="classifier")
+        self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1,padding="same", name="classifier")
 
     def call(self, encoder_hidden_states_post,encoder_hidden_states_pre, training: bool = True):
         batch_size = tf.shape(encoder_hidden_states_post[-1])[0]
@@ -582,7 +524,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
             # unify channel dimension
             
-            encoder_hidden_state=encoder_hidden_state_post-encoder_hidden_state_pre
+            encoder_hidden_state=tf.math.abs(encoder_hidden_state_post-encoder_hidden_state_pre)
             encoder_hidden_state = tf.transpose(encoder_hidden_state, perm=[0, 2, 3, 1])
             height = tf.shape(encoder_hidden_state)[1]
             width = tf.shape(encoder_hidden_state)[2]
@@ -600,14 +542,14 @@ class TFSegformerDecodeHead(tf.keras.Model):
         hidden_states = self.batch_norm(hidden_states, training=training)
         hidden_states = self.activation(hidden_states)
         hidden_states=  self.DilatedSpatialPyramidPooling(hidden_states, training=training)
-        hidden_states = self.conv2(hidden_states, training=training)
-        hidden_states = self.batch_norm2(hidden_states)
-        hidden_states = self.activation2(hidden_states)
-       # hidden_states = self.pixxel_shuffleconv(hidden_states, training=training)
 
-       # hidden_states = tf.nn.depth_to_space(hidden_states, 2)
-        # logits of shape (batch_size, height/4, width/4, num_labels)
+        hidden_states=  self.upsample1(hidden_states, training=training)
+        hidden_states=  self.resblock1(hidden_states, training=training)
+        hidden_states=  self.upsample2(hidden_states, training=training)
+        hidden_states=  self.resblock2(hidden_states, training=training)
+
         logits = self.classifier(hidden_states)
+        logits = tf.image.resize(logits, size=(512,512), method="bilinear")
 
         return logits
     
@@ -653,9 +595,9 @@ class ChangeSegformerForSemanticSegmentation(tf.keras.Model):
 
         if not return_dict:
             if output_hidden_states:
-                output = (logits,) + (outputs_post[1:]-outputs_pre[1:])
+                output = (logits,) + tf.math.abs(outputs_post[1:]-outputs_pre[1:])
             else:
-                output = (logits,) + (outputs_post[2:]-outputs_pre[2:])
+                output = (logits,) + tf.math.abs(outputs_post[2:]-outputs_pre[2:])
             return output
 
         return self.final_activation(logits)

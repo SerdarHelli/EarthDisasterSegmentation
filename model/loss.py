@@ -44,13 +44,13 @@ class DiceLoss(tf.keras.losses.Loss):
  
     def __init__(self,weight=None,**kwargs):
         super().__init__(**kwargs)
-        self.smooth=1
+        self.smooth=K.epsilon()
 
 
     def call(self, y_true, y_pred):
 
-        intersection = K.sum(K.abs(y_true * y_pred), axis=[1])
-        union = K.sum(y_true, axis=[1]) + K.sum(y_pred, axis=[1])
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[-1])
+        union = K.sum(y_true, axis=[-1]) + K.sum(y_pred, axis=[-1])
         dice= 1- ((2. * intersection + self.smooth) / (union + self.smooth))
 
         dice=K.mean(dice)
@@ -60,7 +60,7 @@ class DiceFocalLoss(tf.keras.losses.Loss):
  
     def __init__(self,weights={'dice':0.5,'focal':5},**kwargs):
         super().__init__(**kwargs)
-        self.focal_loss=FocalLoss()
+        self.focal_loss=tf.keras.losses.BinaryFocalCrossentropy(alpha=5,gamma=2.0,apply_class_balancing=True)
         self.dice_loss=DiceLoss()
         self.weights=weights
 

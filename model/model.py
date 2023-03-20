@@ -58,11 +58,10 @@ class ChangeSegFormer(tf.keras.Model):
 
     def compile(self,**kwargs):
         super().compile(**kwargs)
-        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay,clipvalue=self.gradient_clip_value,clipnorm=self.gradient_clip_value*2,
-                                                              use_ema=self.use_ema,ema_momentum=self.ema_momentum,epsilon=1e-04,)
-        self.loss_1=DiceFocalLoss()
+        self.optimizer=tf.keras.optimizers.experimental.AdamW(learning_rate=self.lr ,weight_decay=self.weight_decay)
+        self.loss_1=DiceFocalLoss({'dice': 1, 'focal': 8})
         self.loss_2=tf.keras.losses.SparseCategoricalCrossentropy()
-        self.loss_3=FocalTverskyLoss()
+        #self.loss_3=FocalTverskyLoss()
 
     @property
     def metrics(self):
@@ -108,8 +107,7 @@ class ChangeSegFormer(tf.keras.Model):
     
 
     def dice_classes_score(self,y_true, y_pred):
-        y_true=tf.cast(y_true,dtype=tf.int32)
-        y_true=tf.one_hot(y_true, 5)
+
         dices={}
         d0=self.get_dice(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
         d1=self.get_dice(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
@@ -127,8 +125,7 @@ class ChangeSegFormer(tf.keras.Model):
         return dices
     
     def loss1_full_compute(self,y_true, y_pred,weights=None):
-        y_true=tf.cast(y_true,dtype=tf.int32)
-        y_true=tf.one_hot(y_true, 5)
+
         d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
         d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
         d2=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
@@ -143,22 +140,6 @@ class ChangeSegFormer(tf.keras.Model):
         loss=(d1+d2+d3+d4+d0)
         return loss
 
-    def loss_3_full_compute(self,y_true, y_pred,weights=None):
-        y_true=tf.cast(y_true,dtype=tf.int32)
-        y_true=tf.one_hot(y_true, 5)
-        d0=self.loss_3(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
-        d1=self.loss_3(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
-        d2=self.loss_3(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
-        d3=self.loss_3(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
-        d4=self.loss_3(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
-        if weights:
-            d0=d0*weights[0]
-            d1=d1*weights[1]
-            d2=d2*weights[2]
-            d3=d3*weights[3]
-            d4=d4*weights[4]
-        loss=(d1+d2+d3+d4+d0)
-        return loss
 
     def load(self,usage="train",return_epoch_number=True):
           self.checkpoint = tf.train.Checkpoint(
@@ -207,24 +188,22 @@ class ChangeSegFormer(tf.keras.Model):
         self.checkpoint.step.assign_add(1)
         tf.summary.scalar('steps', data=self.checkpoint.step, step=self.checkpoint.step)
 
-        (x_pre,x_post),(local_map,multilabel_map)=inputs
+        (x_pre,x_post),(y_onehot,y_label)=inputs
 
 
         with tf.GradientTape() as tape:
 
-            y_multilabel = self.network([x_pre,x_post], training=True)
-            upsample_resolution = tf.shape(multilabel_map)
-     
-            y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+            y = self.network([x_pre,x_post], training=True)
+  
 
-            loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-            loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
+            loss_1=self.loss1_full_compute(y_onehot,y,weights=self.class_weights)*self.loss_weights[0]
+            loss_2=self.loss_2(y_label,y)*self.loss_weights[1]
             loss=loss_1+loss_2
 
         gradients = tape.gradient(loss, self.network.trainable_weights)
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
-        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        dices=self.dice_classes_score(y_onehot,y)
 
         self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
@@ -241,20 +220,13 @@ class ChangeSegFormer(tf.keras.Model):
 
     def test_step(self, inputs):
         # 1. Get the batch size
-        (x_pre,x_post),(local_map,multilabel_map)=inputs
+        (x_pre,x_post),(y_onehot,y_label)=inputs
 
-        y_multilabel = self.network([x_pre,x_post], training=False)
-        upsample_resolution = tf.shape(multilabel_map)
-  
-        y_multilabel_resized = tf.image.resize(y_multilabel, size=(upsample_resolution[1],upsample_resolution[2]), method="bilinear")
+        y_multilabel_resized = self.network([x_pre,x_post], training=False)
 
-    
-
-        loss_1=self.loss1_full_compute(multilabel_map,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
-        loss_2=self.loss_2(multilabel_map,y_multilabel_resized,)*self.loss_weights[1]
-
-
-        dices=self.dice_classes_score(multilabel_map,y_multilabel_resized)
+        loss_1=self.loss1_full_compute(y_onehot,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
+        loss_2=self.loss_2(y_label,y_multilabel_resized,)*self.loss_weights[1]
+        dices=self.dice_classes_score(y_onehot,y_multilabel_resized)
 
         self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    

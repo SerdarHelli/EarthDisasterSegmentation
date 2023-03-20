@@ -1,10 +1,10 @@
 num_channels: 3
 num_encoder_blocks: 4
 depths:
-- 2
-- 2
-- 2
-- 2
+- 3
+- 4
+- 6
+- 3
 sr_ratios:
 - 8
 - 4
@@ -16,10 +16,10 @@ hidden_sizes:
 - 320
 - 512
 patch_sizes:
-- 14
-- 6
-- 6
-- 6
+- 7
+- 3
+- 3
+- 3
 use_ema: False
 ema_momentum: 0.9999
 strides:
@@ -67,8 +67,8 @@ semantic_loss_ignore_index: 255
 num_labels: 5
 batch_size: 1
 epochs: 25
-lr: 1.0e-03
-weight_decay: 1.0e-04
+lr: 0.0001
+weight_decay: 1.0e-06
 train_path: 
 - "/content/train"
 test_path:
