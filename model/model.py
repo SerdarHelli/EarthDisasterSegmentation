@@ -115,12 +115,11 @@ class ChangeSegFormer(tf.keras.Model):
         d3=self.get_dice(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
         d4=self.get_dice(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
 
+        dices["background"]=d0
         dices["nodamage"]=d1
         dices["minordamage"]=d2
         dices["majordamage"]=d3
         dices["destroyed"]=d4
-        dices["background"]=d0
-        dices["total_dice"]= 4/(((d1+1e-6)**-1)+((d2+1e-6)**-1)+((d3+1e-6)**-1)+((d4+1e-6)**-1))
 
         return dices
     
@@ -204,6 +203,7 @@ class ChangeSegFormer(tf.keras.Model):
         self.optimizer.apply_gradients(zip(gradients, self.network.trainable_weights))
 
         dices=self.dice_classes_score(y_onehot,y)
+        dices["total_dice"]= 4/(((dices["nodamage"]+1e-6)**-1)+((dices["minordamage"]+1e-6)**-1)+((dices["majordamage"]+1e-6)**-1)+((dices["destroyed"]+1e-6)**-1))
 
         self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
@@ -227,6 +227,7 @@ class ChangeSegFormer(tf.keras.Model):
         loss_1=self.loss1_full_compute(y_onehot,y_multilabel_resized,weights=self.class_weights)*self.loss_weights[0]
         loss_2=self.loss_2(y_label,y_multilabel_resized,)*self.loss_weights[1]
         dices=self.dice_classes_score(y_onehot,y_multilabel_resized)
+        dices["total_dice"]= 4/(((dices["nodamage"]+1e-6)**-1)+((dices["minordamage"]+1e-6)**-1)+((dices["majordamage"]+1e-6)**-1)+((dices["destroyed"]+1e-6)**-1))
 
         self.f1_total_tracker.update_state(dices["total_dice"])   
         self.f1_nodamage_tracker.update_state(dices["nodamage"])    
