@@ -60,7 +60,7 @@ class DiceFocalLoss(tf.keras.losses.Loss):
  
     def __init__(self,weights={'dice':0.5,'focal':5},**kwargs):
         super().__init__(**kwargs)
-        self.focal_loss=tf.keras.losses.BinaryFocalCrossentropy(alpha=5,gamma=2.0,apply_class_balancing=True)
+        self.focal_loss=tf.keras.losses.BinaryFocalCrossentropy(alpha=5,gamma=2.0)
         self.dice_loss=DiceLoss()
         self.weights=weights
 

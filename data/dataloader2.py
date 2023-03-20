@@ -8,6 +8,13 @@ import random
 import os
 from skimage.morphology import square, dilation
 
+def get_encodedx(img):
+  mask = np.zeros(( *img.shape[:2],5))
+  for i in range(0, 5):
+    mask[ img[:, :] == i,i ] = 1
+
+  return np.float32(mask)
+
 class DataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,
@@ -31,8 +38,8 @@ class DataGen(tf.keras.utils.Sequence):
 
               A.OneOf([
                   A.MotionBlur(p=0.2),
-                  A.MedianBlur(blur_limit=2, p=0.1),
-                  A.Blur(blur_limit=2, p=0.1),
+                  A.MedianBlur(blur_limit=1, p=0.1),
+                  A.Blur(blur_limit=1, p=0.1),
               ], p=0.2),
               A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.2, rotate_limit=45, p=0.3),
               A.OneOf([
@@ -56,36 +63,8 @@ class DataGen(tf.keras.utils.Sequence):
         target_path=target_path[-1]
         target_path=target_path.replace("post_disaster","post_disaster_target")
         post_target=cv2.imread(os.path.join(self.target_source_path,target_path),cv2.IMREAD_UNCHANGED)
-        pre_target=cv2.imread(os.path.join(self.target_source_path,target_path.replace(("post_disaster","pre_disaster"))),cv2.IMREAD_UNCHANGED)
-        msk0=pre_target
-        msk1 = np.zeros_like(post_target)
-        msk2 = np.zeros_like(post_target)
-        msk3 = np.zeros_like(post_target)
-        msk4 = np.zeros_like(post_target)
-        msk1[post_target == 1] = 255
-        msk2[post_target == 2] = 255
-        msk3[post_target == 3] = 255
-        msk4[post_target == 4] = 255
-
-        msk0 = msk0[..., np.newaxis]
-        msk1 = msk1[..., np.newaxis]
-        msk2 = msk2[..., np.newaxis]
-        msk3 = msk3[..., np.newaxis]
-        msk4 = msk4[..., np.newaxis]
-
-        msk = np.concatenate([msk0, msk1, msk2, msk3, msk4], axis=2)
-        msk = (msk > 127)
-
-        msk = msk * 1
-
-        msk[..., 0] = True
-        msk[..., 1][msk[..., 2:].max(axis=2)] = False
-        msk[..., 3][msk[..., 2]] = False
-        msk[..., 4][msk[..., 2]] = False
-        msk[..., 4][msk[..., 3]] = False
-        msk[..., 0][msk[..., 1:].max(axis=2)] = False
-        msk = msk * 1
-
+        #pre_target=cv2.imread(os.path.join(self.target_source_path,target_path.replace("post_disaster","pre_disaster")),cv2.IMREAD_UNCHANGED)
+        msk=get_encodedx(post_target)
         post_target_label = msk.argmax(axis=2)
         post_target_onehot = msk
 
@@ -128,7 +107,7 @@ class DataGen(tf.keras.utils.Sequence):
         batch_post_onehot_targets=[]
 
         for i in range(i_start,i_end):
-          pre_dis,post_dis,post_target_onehot,post_target_onehot,post_target_label=self.__load_data__(i)
+          pre_dis,post_dis,post_target_onehot,post_target_label=self.__load_data__(i)
           batch_pres.append(pre_dis)
           batch_posts.append(post_dis)
           batch_post_onehot_targets.append(post_target_onehot)
@@ -181,29 +160,10 @@ class EvalGen(tf.keras.utils.Sequence):
         target_path=target_path[-1]
         target_path=target_path.replace("post_disaster","post_disaster_target")
         post_target=cv2.imread(os.path.join(self.target_source_path,target_path),cv2.IMREAD_UNCHANGED)
-        pre_target=create_inference_image(self.pre_target_files[i])
-        msk0=pre_target
-        msk1 = np.zeros_like(post_target)
-        msk2 = np.zeros_like(post_target)
-        msk3 = np.zeros_like(post_target)
-        msk4 = np.zeros_like(post_target)
-        msk1[post_target == 1] = 255
-        msk2[post_target == 2] = 255
-        msk3[post_target == 3] = 255
-        msk4[post_target == 4] = 255
+        #pre_target=cv2.imread(os.path.join(self.target_source_path,target_path.replace("post_disaster","pre_disaster")),cv2.IMREAD_UNCHANGED)
+        msk=get_encodedx(post_target)
 
-        msk0 = msk0[..., np.newaxis]
-        msk1 = msk1[..., np.newaxis]
-        msk2 = msk2[..., np.newaxis]
-        msk3 = msk3[..., np.newaxis]
-        msk4 = msk4[..., np.newaxis]
-
-        msk = np.concatenate([msk0, msk1, msk2, msk3, msk4], axis=2)
-        msk = (msk > 127)
-
-        msk = msk * 1
-
-        post_target = msk[..., 1:].argmax(axis=2)
+        post_target = msk.argmax(axis=2)
 
         pre_dis=np.float32((pre_dis/127)-1)
         post_dis=np.float32((post_dis/127)-1)
@@ -219,11 +179,11 @@ class EvalGen(tf.keras.utils.Sequence):
         batch_post_onehot_targets=[]
 
         for i in range(i_start,i_end):
-          pre_dis,post_dis,post_target_onehot,post_target_onehot,post_target_label=self.__load_data__(i)
-          batch_pres.append(pre_dis)
-          batch_posts.append(post_dis)
-          batch_post_onehot_targets.append(post_target_onehot)
-          batch_post_label_targets.append(post_target_label)
+          pre_dis,post_dis,post_target_onehot,post_target_label=self.__load_data__(i)
+          batch_pres.extend(pre_dis)
+          batch_posts.extend(post_dis)
+          batch_post_onehot_targets.extend(post_target_onehot)
+          batch_post_label_targets.extend(post_target_label)
 
         return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_post_onehot_targets),np.asarray(batch_post_label_targets)
 
