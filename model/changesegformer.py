@@ -171,12 +171,13 @@ class TFSegformerAttention(tf.keras.layers.Layer):
     ):
         super().__init__(**kwargs)
         self.self = TFSegformerEfficientSelfAttention(
+            config=config,
             hidden_size=hidden_size,
             num_attention_heads=num_attention_heads,
             sequence_reduction_ratio=sequence_reduction_ratio,
             name="self",
         )
-        self.dense_output = TFSegformerSelfOutput( hidden_size=hidden_size,name="output")
+        self.dense_output = TFSegformerSelfOutput(config=config, hidden_size=hidden_size,name="output")
 
     def call(
         self, hidden_states: tf.Tensor, height: int, width: int, output_attentions: bool = False
@@ -458,6 +459,7 @@ class TFSegformerMainLayer(tf.keras.Model):
         # So change the input format from `NCHW` to `NHWC`.
         # shape = (batch_size, in_height, in_width, in_channels=num_channels)
 
+
         encoder_outputs = self.encoder(
             pixel_values,
             output_attentions=output_attentions,
@@ -466,10 +468,12 @@ class TFSegformerMainLayer(tf.keras.Model):
             training=training,
         )
         sequence_output = encoder_outputs[0]
+        # Change to NCHW output format to have uniformity in the modules
+        sequence_output = tf.transpose(sequence_output, perm=[0, 3, 1, 2])
 
 
         if output_hidden_states:
-            hidden_states = tuple([h for h in encoder_outputs[1]])
+            hidden_states = tuple([tf.transpose(h, perm=(0, 3, 1, 2)) for h in encoder_outputs[1]])
 
 
             
@@ -528,7 +532,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
             height = tf.shape(encoder_hidden_state)[1]
             width = tf.shape(encoder_hidden_state)[2]
             encoder_hidden_state = mlp(encoder_hidden_state)
-            encoder_hidden_state = tf.reshape(encoder_hidden_state, (batch_size, height, width, -1))
+            encoder_hidden_state = tf.reshape(encoder_hidden_state, (batch_size, height, width, tf.shape(encoder_hidden_state)[-1]))
 
             # upsample
             temp_state = tf.transpose(encoder_hidden_states_post[0], perm=[0, 2, 3, 1])
@@ -541,14 +545,7 @@ class TFSegformerDecodeHead(tf.keras.Model):
 
         hidden_states = self.batch_norm(hidden_states, training=training)
         hidden_states = self.activation(hidden_states)
-        hidden_states=  self.DilatedSpatialPyramidPooling(hidden_states, training=training)
-
-        hidden_states=  self.upsample1(hidden_states, training=training)
-        hidden_states=  self.resblock1(hidden_states, training=training)
-        hidden_states=  self.upsample2(hidden_states, training=training)
-        hidden_states=  self.resblock2(hidden_states, training=training)
         hidden_states = self.dropout(hidden_states, training=training)
-
         logits = self.classifier(hidden_states)
         logits = tf.image.resize(logits, size=(512,512), method="bilinear")
 
