@@ -88,8 +88,8 @@ class DataGen(tf.keras.utils.Sequence):
         post_target_label_aug=np.float32(post_target_label_aug)
 
 
-        post_dis_aug=np.float32((post_dis_aug/127)-1)
-        pre_dis_aug=np.float32((pre_dis_aug/127)-1)
+        post_dis_aug=np.float32((post_dis_aug-np.mean(post_dis_aug))/np.std(post_dis_aug))
+        pre_dis_aug=np.float32((pre_dis_aug-np.mean(pre_dis_aug))/np.std(pre_dis_aug))
 
         post_target_onehot_aug[np.isnan(post_target_onehot_aug)] = 0
         post_target_label_aug[np.isnan(post_target_label_aug)] = 0
@@ -165,8 +165,8 @@ class EvalGen(tf.keras.utils.Sequence):
 
         post_target = msk.argmax(axis=2)
 
-        pre_dis=np.float32((pre_dis/127)-1)
-        post_dis=np.float32((post_dis/127)-1)
+        post_dis=np.float32((post_dis-np.mean(post_dis))/np.std(post_dis))
+        pre_dis=np.float32((pre_dis-np.mean(pre_dis))/np.std(pre_dis))
         return self.split2piece(pre_dis),self.split2piece(post_dis),self.split2piece(msk),self.split2piece(post_target)
 
 
