@@ -75,7 +75,7 @@ def create_image(inference_data) -> np.ndarray:
     :returns: an numpy array of 8-bit grey scale image with polygons filled in according to the key provided
     """
 
-    damage_key = {"un-classified": 1, "no-damage": 1, "minor-damage": 2, "major-damage": 3, "destroyed": 4}
+    damage_key = {"un-classified": 0, "no-damage": 1, "minor-damage": 2, "major-damage": 3, "destroyed": 4}
 
     mask_img = np.zeros((1024, 1024, 1), np.uint8)
 
@@ -95,7 +95,7 @@ def create_instance_image(inference_data) -> Tuple[np.ndarray, List[int]]:
     :returns: an numpy array of 16-bit grey scale image with polygons filled in according to the key provided
     """
 
-    damage_key = {"un-classified": 1, "no-damage": 1, "minor-damage": 2, "major-damage": 3, "destroyed": 4}
+    damage_key = {"un-classified": 0, "no-damage": 1, "minor-damage": 2, "major-damage": 3, "destroyed": 4}
 
     mask_img = np.zeros((1024, 1024), np.uint16)
 

@@ -1,255 +1,34 @@
-#ref Huggingg Face Segformer
+from transformers import SegformerConfig,TFSegformerModel,TFSegformerPreTrainedModel
 
-import tensorflow as tf
-import math
 from typing import Optional
 from model.layers import *
+import tensorflow as tf
+import tensorflow.keras.backend as K
+from model.loss import *
 
-class TFSegformerDropPath(tf.keras.layers.Layer):
-    """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
-    References:
-        (1) github.com:rwightman/pytorch-image-models
-    """
+class GetDifference(tf.keras.layers.Layer):
 
-    def __init__(self, drop_path, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.drop_path = drop_path
 
-    def call(self, x, training=None):
-        if training:
-            keep_prob = 1 - self.drop_path
-            shape = (tf.shape(x)[0],) + (1,) * (len(tf.shape(x)) - 1)
-            random_tensor = keep_prob + tf.random.uniform(shape, 0, 1)
-            random_tensor = tf.floor(random_tensor)
-            return (x / keep_prob) * random_tensor
-        return x
+    def build(self, input_shape):
+        self.filters=input_shape[1]
+        self.proj =tf.keras.layers.Conv2D(self.filters,kernel_size=7,padding="same",use_bias=False, kernel_initializer='he_normal')
+        self.proj1 =tf.keras.layers.GlobalAveragePooling2D()
+        self.proj2 =tf.keras.layers.Dense(self.filters)
 
-class TFSegformerOverlapPatchEmbeddings(tf.keras.layers.Layer):
-    """Construct the overlapping patch embeddings."""
+    def call(self, input_post_tensor: tf.Tensor,input_pre_tensor:tf.Tensor):
+        diff=tf.math.abs(input_post_tensor-input_pre_tensor)
 
-    def __init__(self, patch_size, stride, hidden_size, **kwargs):
-        super().__init__(**kwargs)
-        self.padding = tf.keras.layers.ZeroPadding2D(padding=patch_size // 2)
-        self.proj = tf.keras.layers.Conv2D(
-            filters=hidden_size, kernel_size=patch_size, strides=stride, padding="VALID", name="proj"
-        )
+        att=tf.concat([input_post_tensor,input_pre_tensor,diff],axis=1)
+        att=tf.transpose(att,(0, 2, 3, 1))
+        att=self.proj(att)
+        att=self.proj1(att)
+        att=tf.nn.sigmoid(self.proj2(att))
 
-        self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
+        att=tf.reshape(att,(tf.shape(input_post_tensor)[0],self.filters,1,1))
+        return diff*att
 
-    def call(self, inputs):
-        embeddings = self.proj(self.padding(inputs))
-        shape=tf.shape(embeddings)
-
-        height = shape[1]
-        width = shape[2]
-        hidden_dim = shape[3]
-        # (batch_size, height, width, num_channels) -> (batch_size, height*width, num_channels)
-        # this can be fed to a Transformer layer
-        embeddings = tf.reshape(embeddings, (-1, height * width, hidden_dim))
-        embeddings = self.layer_norm(embeddings)
-        return embeddings, height, width
-
-class TFSegformerEfficientSelfAttention(tf.keras.layers.Layer):
-    """SegFormer's efficient self-attention mechanism. Employs the sequence reduction process introduced in the [PvT
-    paper](https://arxiv.org/abs/2102.12122)."""
-
-    def __init__(
-        self,
-        config,
-        hidden_size: int,
-        num_attention_heads: int,
-        sequence_reduction_ratio: int,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.hidden_size = hidden_size
-        self.num_attention_heads = num_attention_heads
-
-        if self.hidden_size % self.num_attention_heads != 0:
-            raise ValueError(
-                f"The hidden size ({self.hidden_size}) is not a multiple of the number of attention "
-                f"heads ({self.num_attention_heads})"
-            )
-
-        self.attention_head_size = self.hidden_size // self.num_attention_heads
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.sqrt_att_head_size = math.sqrt(self.attention_head_size)
-
-        self.query = tf.keras.layers.Dense(self.all_head_size, name="query")
-        self.key = tf.keras.layers.Dense(self.all_head_size, name="key")
-        self.value = tf.keras.layers.Dense(self.all_head_size, name="value")
-
-        self.dropout = tf.keras.layers.Dropout(config.attention_probs_dropout_prob)
-
-        self.sr_ratio = sequence_reduction_ratio
-        if sequence_reduction_ratio > 1:
-            self.sr = tf.keras.layers.Conv2D(
-                filters=hidden_size, kernel_size=sequence_reduction_ratio, strides=sequence_reduction_ratio, name="sr"
-            )
-            self.layer_norm = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm")
-
-    def transpose_for_scores(self, tensor: tf.Tensor) -> tf.Tensor:
-        # Reshape from [batch_size, seq_length, all_head_size]
-        # to [batch_size, seq_length, num_attention_heads, attention_head_size]
-        batch_size = tf.shape(tensor)[0]
-        tensor = tf.reshape(tensor=tensor, shape=(batch_size, -1, self.num_attention_heads, self.attention_head_size))
-
-        # Transpose the tensor from [batch_size, seq_length, num_attention_heads, attention_head_size]
-        # to [batch_size, num_attention_heads, seq_length, attention_head_size]
-        return tf.transpose(tensor, perm=[0, 2, 1, 3])
-
-    def call(
-        self,
-        hidden_states: tf.Tensor,
-        height: int,
-        width: int,
-        output_attentions: bool = False,
-        training: bool = True,
-    ) :
-        batch_size = tf.shape(hidden_states)[0]
-        num_channels = tf.shape(hidden_states)[2]
-
-        query_layer = self.transpose_for_scores(self.query(hidden_states))
-
-        if self.sr_ratio > 1:
-            # Reshape to (batch_size, height, width, num_channels)
-            hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
-            # Apply sequence reduction
-            hidden_states = self.sr(hidden_states)
-            # Reshape back to (batch_size, seq_len, num_channels)
-            hidden_states = tf.reshape(hidden_states, (batch_size, -1, num_channels))
-            hidden_states = self.layer_norm(hidden_states)
-
-        key_layer = self.transpose_for_scores(self.key(hidden_states))
-        value_layer = self.transpose_for_scores(self.value(hidden_states))
-
-        # Take the dot product between "query" and "key" to get the raw attention scores.
-        attention_scores = tf.matmul(query_layer, key_layer, transpose_b=True)
-
-        scale = tf.cast(self.sqrt_att_head_size, dtype=attention_scores.dtype)
-        attention_scores = tf.divide(attention_scores, scale)
-
-        # Normalize the attention scores to probabilities.
-        attention_probs = tf.nn.softmax(logits=attention_scores + 1e-9, axis=-1)
-
-        # This is actually dropping out entire tokens to attend to, which might
-        # seem a bit unusual, but is taken from the original Transformer paper.
-        attention_probs = self.dropout(attention_probs, training=training)
-
-        context_layer = tf.matmul(attention_probs, value_layer)
-
-        context_layer = tf.transpose(context_layer, perm=[0, 2, 1, 3])
-        # (batch_size, seq_len_q, all_head_size)
-        context_layer = tf.reshape(context_layer, (batch_size, -1, self.all_head_size))
-
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-        return outputs
-
-
-class TFSegformerSelfOutput(tf.keras.layers.Layer):
-    def __init__(self,config, hidden_size: int, **kwargs):
-        super().__init__(**kwargs)
-        self.dense = tf.keras.layers.Dense(hidden_size, name="dense")
-        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
-
-    def call(self, hidden_states: tf.Tensor, training: bool = True) -> tf.Tensor:
-
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states, training=training)
-
-        return hidden_states
-
-
-class TFSegformerAttention(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        config,
-        hidden_size: int,
-        num_attention_heads: int,
-        sequence_reduction_ratio: int,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.self = TFSegformerEfficientSelfAttention(
-            config=config,
-            hidden_size=hidden_size,
-            num_attention_heads=num_attention_heads,
-            sequence_reduction_ratio=sequence_reduction_ratio,
-            name="self",
-        )
-        self.dense_output = TFSegformerSelfOutput(config=config, hidden_size=hidden_size,name="output")
-
-    def call(
-        self, hidden_states: tf.Tensor, height: int, width: int, output_attentions: bool = False
-    ) :
-        self_outputs = self.self(hidden_states, height, width, output_attentions)
-
-        attention_output = self.dense_output(self_outputs[0])
-        outputs = (attention_output,) + self_outputs[1:]  # add attentions if we output them
-        return outputs
-
-
-class TFSegformerDWConv(tf.keras.layers.Layer):
-    def __init__(self, dim: int = 768, **kwargs):
-        super().__init__(**kwargs)
-        self.depthwise_convolution = tf.keras.layers.Conv2D(
-            filters=dim, kernel_size=3, strides=1, padding="same", groups=dim, name="dwconv"
-        )
-
-    def call(self, hidden_states: tf.Tensor, height: int, width: int):
-        batch_size = tf.shape(hidden_states)[0]
-        num_channels = tf.shape(hidden_states)[-1]
-        hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
-        hidden_states = self.depthwise_convolution(hidden_states)
-
-        new_height = tf.shape(hidden_states)[1]
-        new_width = tf.shape(hidden_states)[2]
-        num_channels = tf.shape(hidden_states)[3]
-        hidden_states = tf.reshape(hidden_states, (batch_size, new_height * new_width, num_channels))
-        return hidden_states
-    
-
-
-
-class Gelu(tf.keras.layers.Layer):
-    def __init__(
-            self,
-            **kwargs
-    ):
-        super().__init__(**kwargs)
-    def call(self,inputs):
-        cdf = 0.5 * (1.0 + tf.math.erf(inputs / tf.cast(tf.sqrt(2.0), inputs.dtype)))
-        return inputs * cdf
-
-
-
-class TFSegformerMixFFN(tf.keras.layers.Layer):
-    def __init__(
-        self,
-        config,
-        in_features: int,
-        hidden_features: int = None,
-        out_features: int = None,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        out_features = out_features or in_features
-        self.dense1 = tf.keras.layers.Dense(hidden_features, name="dense1")
-        self.depthwise_convolution = TFSegformerDWConv(hidden_features, name="dwconv")
-
-        self.intermediate_act_fn = Gelu()
-
-        self.dense2 = tf.keras.layers.Dense(out_features, name="dense2")
-        self.dropout = tf.keras.layers.Dropout(config.hidden_dropout_prob)
-
-    def call(self, hidden_states: tf.Tensor, height: int, width: int, training: bool = True) :
-        hidden_states = self.dense1(hidden_states)
-        hidden_states = self.depthwise_convolution(hidden_states, height, width)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        hidden_states = self.dense2(hidden_states)
-        hidden_states = self.dropout(hidden_states, training=training)
-
-        return hidden_states
 
 class TFSegformerMLP(tf.keras.layers.Layer):
     """
@@ -271,329 +50,283 @@ class TFSegformerMLP(tf.keras.layers.Layer):
         return hidden_states
 
 
-class TFSegformerLayer(tf.keras.layers.Layer):
-    """This corresponds to the Block class in the original implementation."""
 
-    def __init__(
-        self,
-        config,
-        hidden_size: int,
-        num_attention_heads: int,
-        drop_path: float,
-        sequence_reduction_ratio: int,
-        mlp_ratio: int,
-        **kwargs
-    ):
-        super().__init__(**kwargs)
-        self.layer_norm_1 = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm_1")
-        self.attention = TFSegformerAttention(
-            config=config,
-            hidden_size=hidden_size,
-            num_attention_heads=num_attention_heads,
-            sequence_reduction_ratio=sequence_reduction_ratio,
-            name="attention",
-        )
-        self.drop_path = TFSegformerDropPath(drop_path) if drop_path > 0.0 else tf.keras.layers.Activation("linear")
-        self.layer_norm_2 = tf.keras.layers.LayerNormalization(epsilon=1e-05, name="layer_norm_2")
-        mlp_hidden_size = int(hidden_size * mlp_ratio)
-        self.mlp = TFSegformerMixFFN( config,in_features=hidden_size, hidden_features=mlp_hidden_size, name="mlp")
-
-    def call(
-        self,
-        hidden_states: tf.Tensor,
-        height: int,
-        width: int,
-        output_attentions: bool = False,
-        training: bool = True,
-    ) :
-        self_attention_outputs = self.attention(
-            self.layer_norm_1(hidden_states),  # in Segformer, layernorm is applied before self-attention
-            height,
-            width,
-            output_attentions=output_attentions,
-            training=training,
-        )
-
-        attention_output = self_attention_outputs[0]
-        outputs = self_attention_outputs[1:]  # add self attentions if we output attention weights
-
-        # first residual connection (with stochastic depth)
-        attention_output = self.drop_path(attention_output, training=training)
-        hidden_states = attention_output + hidden_states
-        mlp_output = self.mlp(self.layer_norm_2(hidden_states), height, width)
-
-        # second residual connection (with stochastic depth)
-        mlp_output = self.drop_path(mlp_output, training=training)
-        layer_output = mlp_output + hidden_states
-
-        outputs = (layer_output,) + outputs
-
-        return outputs
-    
-
-
-class TFSegformerEncoder(tf.keras.Model):
-    def __init__(self, config,**kwargs):
-        super().__init__(**kwargs)
-        self.config=config
-
-
-        # stochastic depth decay rule
-        drop_path_decays = [x.numpy() for x in tf.linspace(0.0, 0.1, sum(config.depths))]
-
-        # patch embeddings
-        embeddings = []
-        for i in range(config.num_encoder_blocks):
-            embeddings.append(
-                TFSegformerOverlapPatchEmbeddings(
-                    patch_size=config.patch_sizes[i],
-                    stride=config.strides[i],
-                    hidden_size=config.hidden_sizes[i],
-                    name=f"patch_embeddings.{i}",
-                )
-            )
-        self.embeddings = embeddings
-
-        # Transformer blocks
-        blocks = []
-        cur = 0
-        for i in range(config.num_encoder_blocks):
-            # each block consists of layers
-            layers = []
-            if i != 0:
-                cur += config.depths[i - 1]
-            for j in range(config.depths[i]):
-                layers.append(
-                    TFSegformerLayer(
-                        config,
-                        hidden_size=config.hidden_sizes[i],
-                        num_attention_heads=config.num_attention_heads[i],
-                        drop_path=drop_path_decays[cur + j],
-                        sequence_reduction_ratio=config.sr_ratios[i],
-                        mlp_ratio=config.mlp_ratios[i],
-                        name=f"block.{i}.{j}"
-                    )
-                )
-            blocks.append(layers)
-
-        self.block = blocks
-
-        # Layer norms
-        self.layer_norms = [
-            tf.keras.layers.LayerNormalization(epsilon=1e-05, name=f"layer_norm.{i}")
-            for i in range(config.num_encoder_blocks)
-        ]
-
-    def call(
-        self,
-        pixel_values: tf.Tensor,
-        output_attentions: Optional[bool] = False,
-        output_hidden_states: Optional[bool] = False,
-        return_dict: Optional[bool] = True,
-        training: bool = True,
-    ) :
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attentions = () if output_attentions else None
-
-        batch_size = tf.shape(pixel_values)[0]
-
-        hidden_states = pixel_values
-        for idx, x in enumerate(zip(self.embeddings, self.block, self.layer_norms)):
-            embedding_layer, block_layer, norm_layer = x
-            # first, obtain patch embeddings
-            hidden_states, height, width = embedding_layer(hidden_states)
-
-            # second, send embeddings through blocks
-            # (each block consists of multiple layers i.e., list of layers)
-            for i, blk in enumerate(block_layer):
-                layer_outputs = blk(
-                    hidden_states,
-                    height,
-                    width,
-                    output_attentions,
-                    training=training,
-                )
-                hidden_states = layer_outputs[0]
-                if output_attentions:
-                    all_self_attentions = all_self_attentions + (layer_outputs[1],)
-
-            # third, apply layer norm
-            hidden_states = norm_layer(hidden_states)
-
-            # fourth, optionally reshape back to (batch_size, height, width, num_channels)
-            if idx != len(self.embeddings) - 1 or (idx == len(self.embeddings) - 1 and self.config.reshape_last_stage):
-                num_channels = tf.shape(hidden_states)[-1]
-                hidden_states = tf.reshape(hidden_states, (batch_size, height, width, num_channels))
-
-            if output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-
-        
-        return tuple(v for v in [hidden_states, all_hidden_states, all_self_attentions] if v is not None)
-
-
-class TFSegformerMainLayer(tf.keras.Model):
-
-    def __init__(self,config,  **kwargs):
-        super().__init__(**kwargs)
-
-        # hierarchical Transformer encoder
-        self.encoder = TFSegformerEncoder(config, name="encoder")
-        self.config=config
-
-    def call(
-        self,
-        pixel_values: tf.Tensor,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-        training: bool = True,
-    ) :
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
-        # When running on CPU, `tf.keras.layers.Conv2D` doesn't support `NCHW` format.
-        # So change the input format from `NCHW` to `NHWC`.
-        # shape = (batch_size, in_height, in_width, in_channels=num_channels)
-
-
-        encoder_outputs = self.encoder(
-            pixel_values,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            training=training,
-        )
-        sequence_output = encoder_outputs[0]
-        # Change to NCHW output format to have uniformity in the modules
-        sequence_output = tf.transpose(sequence_output, perm=[0, 3, 1, 2])
-
-
-        if output_hidden_states:
-            hidden_states = tuple([tf.transpose(h, perm=(0, 3, 1, 2)) for h in encoder_outputs[1]])
-
-
-            
-        hidden_states=hidden_states if output_hidden_states else encoder_outputs[1]
-
-
- 
-        return sequence_output,hidden_states,encoder_outputs[-1]
-
-
-class TFSegformerDecodeHead(tf.keras.Model):
+class SegformerDecodeHead(TFSegformerPreTrainedModel):
     def __init__(self,config, **kwargs):
-        super().__init__( **kwargs)
+        super().__init__( config,**kwargs)
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         self.config=config
         mlps = []
+ 
         for i in range(config.num_encoder_blocks):
-            mlp = mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
+            mlp = TFSegformerMLP(config, name=f"linear_c.{i}")
             mlps.append(mlp)
+
         self.mlps = mlps
+
+        self.diff0 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_diff_0")
+        self.pred0 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_pred_0")
+        self.diff1 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_diff_1")
+        self.pred1 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_pred_1")
+        self.diff2 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_diff_2")
+        self.pred2 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_pred_2")
+        self.diff3 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_diff_3")
+        self.pred3 = ConvBlock(config.decoder_hidden_size,drop_path_rate=0.1,name="conv_decoder_pred_3")
+        self.res0 =ResBlock(256)
+        self.upsample0 =UpSample(256)
+        self.res1 =ResBlock(128)
+        self.upsample1 =UpSample(128)
+        self.res2 =ResBlock(64)
 
         # the following 3 layers implement the ConvModule of the original implementation
         self.linear_fuse = tf.keras.layers.Conv2D(
-            filters=config.decoder_hidden_size, kernel_size=1,padding="same", use_bias=False, name="linear_fuse",activity_regularizer=tf.keras.regularizers.L2(1e-6)
+            filters=config.decoder_hidden_size, kernel_size=1, use_bias=False, name="linear_fuse",activity_regularizer=tf.keras.regularizers.L2(1e-6)
         )
         self.batch_norm = tf.keras.layers.BatchNormalization(epsilon=1e-5, momentum=0.9, name="batch_norm")
         self.activation = tf.keras.layers.Activation("relu")
 
-        self.dropout  = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1,padding="same", name="classifier")
-
-        self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1,padding="same", name="classifier")
-
-        self.DilatedSpatialPyramidPooling=DilatedSpatialPyramidPooling(filters=128)
-        self.upsample1=UpSample(128)
-        self.resblock1=ResBlock(64)
-        self.upsample2=UpSample(32)
-        self.resblock2=ResBlock(32)
+        self.dropout = tf.keras.layers.Dropout(config.classifier_dropout_prob)
 
 
-    def call(self, encoder_hidden_states_post,encoder_hidden_states_pre, training: bool = True):
-        batch_size = tf.shape(encoder_hidden_states_post[-1])[0]
 
-        all_hidden_states = ()
-        for idx,(encoder_hidden_state_post, encoder_hidden_state_pre,mlp) in enumerate(zip(encoder_hidden_states_post, encoder_hidden_states_pre,self.mlps,)):
-            if self.config.reshape_last_stage is False and len(tf.shape(encoder_hidden_state_post)) == 3:
-                height = tf.math.sqrt(tf.cast(tf.shape(encoder_hidden_state_post)[1], tf.float32))
+        self.classifier = tf.keras.layers.Conv2D(filters=config.num_labels, kernel_size=1, name="classifier")
+
+
+    def call(self, encoder_hidden_states_pre,encoder_hidden_states_post, training: bool = True):
+        batch_size = tf.shape(encoder_hidden_states_pre[-1])[0]
+
+        all_hidden_states_pre = []
+        all_hidden_states_post= []
+        all_hidden_states=[]
+        upsample_resolution = tf.shape( tf.transpose(encoder_hidden_states_pre[0], perm=[0, 2, 3, 1]))[1:-1]
+
+        for idx,(encoder_hidden_state_pre, encoder_hidden_state_post,mlp) in enumerate(zip(encoder_hidden_states_pre, encoder_hidden_states_post,self.mlps)):
+            if self.config.reshape_last_stage is False and len(tf.shape(encoder_hidden_state_pre)) == 3:
+                height = tf.math.sqrt(tf.cast(tf.shape(encoder_hidden_state_pre)[1], tf.float32))
                 height = width = tf.cast(height, tf.int32)
-                encoder_hidden_state_post = tf.reshape(encoder_hidden_state_post, (batch_size, height, width, -1))
                 encoder_hidden_state_pre = tf.reshape(encoder_hidden_state_pre, (batch_size, height, width, -1))
-            
+                encoder_hidden_state_post = tf.reshape(encoder_hidden_state_post, (batch_size, height, width, -1))
 
             # unify channel dimension
             
-            encoder_hidden_state=tf.math.abs(encoder_hidden_state_post-encoder_hidden_state_pre)
-            encoder_hidden_state = tf.transpose(encoder_hidden_state, perm=[0, 2, 3, 1])
-            height = tf.shape(encoder_hidden_state)[1]
-            width = tf.shape(encoder_hidden_state)[2]
-            encoder_hidden_state = mlp(encoder_hidden_state)
-            encoder_hidden_state = tf.reshape(encoder_hidden_state, (batch_size, height, width, tf.shape(encoder_hidden_state)[-1]))
 
-            # upsample
-            temp_state = tf.transpose(encoder_hidden_states_post[0], perm=[0, 2, 3, 1])
-            upsample_resolution = tf.shape(temp_state)[1:-1]
-            
-            encoder_hidden_state = tf.image.resize(encoder_hidden_state, size=upsample_resolution, method="bilinear")
-            all_hidden_states += (encoder_hidden_state,)
+            encoder_hidden_state_pre = tf.transpose(encoder_hidden_state_pre, perm=[0, 2, 3, 1])
+            encoder_hidden_state_post = tf.transpose(encoder_hidden_state_post, perm=[0, 2, 3, 1])
 
-        hidden_states = self.linear_fuse(tf.concat(all_hidden_states[::-1], axis=-1))
+            height = tf.shape(encoder_hidden_state_post)[1]
+            width = tf.shape(encoder_hidden_state_post)[2]
+            encoder_hidden_state_post = mlp(encoder_hidden_state_post)
+            encoder_hidden_state_pre = mlp(encoder_hidden_state_pre)
+            encoder_hidden_state_pre = tf.reshape(encoder_hidden_state_pre, (batch_size, height, width, tf.shape(encoder_hidden_state_pre)[-1]))
+            encoder_hidden_state_post = tf.reshape(encoder_hidden_state_post, (batch_size, height, width, tf.shape(encoder_hidden_state_post)[-1]))
+            all_hidden_states_pre.append(encoder_hidden_state_pre)
+            all_hidden_states_post.append(encoder_hidden_state_post)
+
+
+        hidden_states_0=tf.concat([all_hidden_states_pre[0],all_hidden_states_post[0]],axis=-1)
+        hidden_states_0=self.diff0(hidden_states_0)
+        hidden_states_0=self.pred0(hidden_states_0)
+        hidden_states_0 = tf.image.resize(hidden_states_0, size=upsample_resolution, method="bilinear")
+        all_hidden_states.append(hidden_states_0)
+
+
+        hidden_states_1=tf.concat([all_hidden_states_pre[1],all_hidden_states_post[1]],axis=-1)
+        hid_sub1= tf.image.resize(hidden_states_0, size=(tf.shape(hidden_states_1)[1],tf.shape(hidden_states_1)[2]), method="bilinear")
+        hidden_states_1=self.diff1(hidden_states_1)+hid_sub1
+        hidden_states_1=self.pred1(hidden_states_1)
+        hidden_states_1 = tf.image.resize(hidden_states_1, size=upsample_resolution, method="bilinear")
+        all_hidden_states.append(hidden_states_1)
+
+        hidden_states_2=tf.concat([all_hidden_states_pre[2],all_hidden_states_post[2]],axis=-1)
+        hid_sub2= tf.image.resize(hidden_states_1, size=(tf.shape(hidden_states_2)[1],tf.shape(hidden_states_2)[2]), method="bilinear")
+        hidden_states_2=self.diff2(hidden_states_2)+hid_sub2
+        hidden_states_2=self.pred2(hidden_states_2)
+        hidden_states_2 = tf.image.resize(hidden_states_2, size=upsample_resolution, method="bilinear")
+        all_hidden_states.append(hidden_states_2)
+
+        hidden_states_3=tf.concat([all_hidden_states_pre[3],all_hidden_states_post[3]],axis=-1)
+        hid_sub3= tf.image.resize(hidden_states_2, size=(tf.shape(hidden_states_3)[1],tf.shape(hidden_states_3)[2]), method="bilinear")
+        hidden_states_3=self.diff3(hidden_states_3)+hid_sub3
+        hidden_states_3=self.pred3(hidden_states_3)
+        hidden_states_3 = tf.image.resize(hidden_states_3, size=upsample_resolution, method="bilinear")
+        all_hidden_states.append(hidden_states_3)
+
+
+
+        hidden_states = self.linear_fuse(tf.concat(all_hidden_states, axis=-1))
+        hidden_states=self.res0(hidden_states)
+        hidden_states=self.upsample0(hidden_states)
+        hidden_states=self.res1(hidden_states)
+        hidden_states=self.upsample1(hidden_states)
+        hidden_states=self.res2(hidden_states)
 
         hidden_states = self.batch_norm(hidden_states, training=training)
         hidden_states = self.activation(hidden_states)
         hidden_states = self.dropout(hidden_states, training=training)
+    
+        # logits of shape (batch_size, height/4, width/4, num_labels)
         logits = self.classifier(hidden_states)
-        logits = tf.image.resize(logits, size=(512,512), method="bilinear")
 
         return logits
     
-class ChangeSegformerForSemanticSegmentation(tf.keras.Model):
-    def __init__(self, config, **kwargs):
-        super().__init__( **kwargs)
-        self.segformer_post = TFSegformerMainLayer(config, name="segformer_post")
-        self.segformer_pre = TFSegformerMainLayer(config, name="segformer_pre")
-        self.decode_head = TFSegformerDecodeHead(config, name="decode_head")
-        self.config=config
-        self.final_activation=tf.keras.layers.Activation("softmax")
+    
+class SegFormerClassifier(tf.keras.Model):
+    def __init__(self, segformer: Optional[TFSegformerModel] = None):
+        super().__init__()
+        self.config: SegformerConfig = SegformerConfig.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
+  
+        self.segformer: TFSegformerModel = TFSegformerModel.from_pretrained("nvidia/segformer-b0-finetuned-ade-512-512")
+        #self.segformer_post: TFSegformerModel = TFSegformerModel.from_pretrained("nvidia/segformer-b1-finetuned-ade-512-512")
+        self.config.num_labels = 5
+        self.config.hidden_sizes = [hidden_size * 2 for hidden_size in self.config.hidden_sizes]
+        self.decode_head: SegformerDecodeHead = SegformerDecodeHead(self.config)
+        self.segformer_input_size = (512, 512)
+        diffs = []
+        for i in range(self.config.num_encoder_blocks):
+            diff = GetDifference( name=f"difference_c.{i}")
+            diffs.append(diff)
+        self.diffs = diffs
 
-    def call(
-        self,
-        pixel_values_post: tf.Tensor,
-        pixel_values_pre: tf.Tensor,
-        output_attentions: Optional[bool] = None,
-        output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
-    ) :
 
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+    def call(self, pre,post) :
+        return_dict: bool = True
+        output_hidden_states: bool = False
 
-        outputs_post = self.segformer_post(
-            pixel_values_post,
-            output_attentions=output_attentions,
+
+        pre_outputs = self.segformer(
+            pre,
+            output_attentions=False,
             output_hidden_states=True,  # we need the intermediate hidden states
             return_dict=return_dict,
         )
-        outputs_pre = self.segformer_pre(
-                pixel_values_pre,
-                output_attentions=output_attentions,
-                output_hidden_states=True,  # we need the intermediate hidden states
-                return_dict=return_dict,
-            )
-        
-        encoder_hidden_states_post =  outputs_post[1] 
-        encoder_hidden_states_pre = outputs_pre[1] 
 
-        logits = self.decode_head(encoder_hidden_states_post,encoder_hidden_states_pre)
+        post_outputs = self.segformer(
+            post,
+            output_attentions=False,
+            output_hidden_states=True,  # we need the intermediate hidden states
+            return_dict=return_dict,
+        )
 
-  
+        logits = self.decode_head(pre_outputs.hidden_states, post_outputs.hidden_states)
 
-        return self.final_activation(logits)
+        return tf.nn.sigmoid(logits)
     
+class CustomModel(tf.keras.Model):
 
+    def __init__(self, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+      
+      self.loss_1= DiceFocalLoss()
+
+      self.loss_1_tracker = tf.keras.metrics.Mean(name="loss")
+      self.recall_tracker=tf.keras.metrics.Precision(thresholds=0.3,name="Precision")
+
+      self.f1_total_tracker=tf.keras.metrics.BinaryIoU( target_class_ids= [1],threshold=0.3,name="iou_total")
+      self.f1_nodamage_tracker     =    tf.keras.metrics.BinaryIoU( target_class_ids= [1],threshold=0.3,name="iou_nodamage")
+      self.f1_minordamage_tracker  = tf.keras.metrics.BinaryIoU( target_class_ids= [1],threshold=0.3,name="iou_minordamage")
+      self.f1_majordamage_tracker  = tf.keras.metrics.BinaryIoU( target_class_ids= [1],threshold=0.3,name="iou_majordamage")
+      self.f1_destroyed_tracker    = tf.keras.metrics.BinaryIoU( target_class_ids= [1],threshold=0.3,name="iou_destroyed")
+      self.f1_background_tracker = tf.keras.metrics.BinaryIoU( target_class_ids= [0],threshold=0.3,name="iou_background")
+
+    @property
+    def metrics(self):
+        return [
+            self.loss_1_tracker,
+            self.f1_total_tracker,
+            self.f1_nodamage_tracker,    
+            self.f1_minordamage_tracker ,
+            self.f1_majordamage_tracker ,
+            self.f1_destroyed_tracker   ,
+            self.f1_background_tracker,
+            self.recall_tracker,
+        ]
+
+    def loss1_full_compute(self,y_true, y_pred,weights=None):
+
+        d0=self.loss_1(tf.expand_dims(y_true[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        d1=self.loss_1(tf.expand_dims(y_true[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))
+        d2=self.loss_1(tf.expand_dims(y_true[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1))
+        d3=self.loss_1(tf.expand_dims(y_true[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1))
+        d4=self.loss_1(tf.expand_dims(y_true[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))
+
+        if weights:
+            d0=d0*0.05
+            d1=d1*0.2
+            d2=d2*0.4
+            d3=d3*0.6
+            d4=d4*0.4
+
+        loss=(d1+d2+d3+d4+d0)
+        return loss
+
+
+    def train_step(self, data):
+        # Unpack the data. Its structure depends on your model and
+        # on what you pass to `fit()`.
+        (pre, post),(y_one,_) = data
+
+        pre=tf.transpose(pre,(0,3,1,2))
+        post=tf.transpose(post,(0,3,1,2))
+
+        with tf.GradientTape() as tape:
+            y_pred = self([pre,post], training=True)  # Forward pass
+            # Compute the loss value
+            # (the loss function is configured in `compile()`)
+
+            loss = self.loss_1(y_one, y_pred)
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Update metrics (includes the metric that tracks the loss)
+
+
+
+        self.f1_total_tracker.update_state(K.flatten(y_one[:,:,:,1:]),K.flatten(y_pred[:,:,:,1:]))   
+        self.f1_nodamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))    
+        self.f1_minordamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1)) 
+        self.f1_majordamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1)) 
+        self.f1_destroyed_tracker.update_state(tf.expand_dims(y_one[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))   
+        self.f1_background_tracker.update_state(tf.expand_dims(y_one[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        self.loss_1_tracker.update_state(loss)
+        self.recall_tracker.update_state(K.flatten(tf.expand_dims(y_one[:,:,:,1:],axis=-1)),K.flatten(tf.expand_dims(y_pred[:,:,:,1:],axis=-1)))
+        results = {m.name: m.result() for m in self.metrics}
+        return results
+
+
+
+    def test_step(self, data):
+        # Unpack the data. Its structure depends on your model and
+        # on what you pass to `fit()`.
+        (pre, post),(y_one,_) = data
+
+        pre=tf.transpose(pre,(0,3,1,2))
+        post=tf.transpose(post,(0,3,1,2))
+
+        y_pred = self([pre,post], training=False)  # Forward pass
+
+        # Compute the loss value
+        # (the loss function is configured in `compile()`)
+        loss = self.loss_1(y_one, y_pred)
+
+
+        self.f1_total_tracker.update_state(K.flatten(tf.expand_dims(y_one[:,:,:,1:],axis=-1)),K.flatten(tf.expand_dims(y_pred[:,:,:,1:],axis=-1)))   
+        self.f1_nodamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,1],axis=-1),tf.expand_dims(y_pred[:,:,:,1],axis=-1))    
+        self.f1_minordamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,2],axis=-1),tf.expand_dims(y_pred[:,:,:,2],axis=-1)) 
+        self.f1_majordamage_tracker.update_state(tf.expand_dims(y_one[:,:,:,3],axis=-1),tf.expand_dims(y_pred[:,:,:,3],axis=-1)) 
+        self.f1_destroyed_tracker.update_state(tf.expand_dims(y_one[:,:,:,4],axis=-1),tf.expand_dims(y_pred[:,:,:,4],axis=-1))   
+        self.f1_background_tracker.update_state(tf.expand_dims(y_one[:,:,:,0],axis=-1),tf.expand_dims(y_pred[:,:,:,0],axis=-1))
+        self.loss_1_tracker.update_state(loss)
+        self.recall_tracker.update_state(K.flatten(tf.expand_dims(y_one[:,:,:,1:],axis=-1)),K.flatten(tf.expand_dims(y_pred[:,:,:,1:],axis=-1)))
+
+        results = {m.name: m.result() for m in self.metrics}
+        return results
+
+def build_usegformer(shape_input):
+  input_post= tf.keras.Input(shape=shape_input,name="post_image")
+  input_pre = tf.keras.Input(shape=shape_input,name="pre_image")
+  output=SegFormerClassifier()(input_pre,input_post)
+  model = CustomModel(inputs=[input_pre,input_post], outputs=[output])
+  return model

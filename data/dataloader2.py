@@ -21,7 +21,8 @@ class DataGen(tf.keras.utils.Sequence):
                  batch_size,img_size=512,augmentation=False,
                  ):
       
-        pre_dis_files,post_dis_files,_,_=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,_=get_idx_all_path(path_list)
+        self.post_target_files=post_target_files
 
         self.pre_dis_files=pre_dis_files
         self.post_dis_files=post_dis_files
@@ -62,7 +63,8 @@ class DataGen(tf.keras.utils.Sequence):
         target_path=self.post_dis_files[i].split("/")
         target_path=target_path[-1]
         target_path=target_path.replace("post_disaster","post_disaster_target")
-        post_target=cv2.imread(os.path.join(self.target_source_path,target_path),cv2.IMREAD_UNCHANGED)
+        post_target= create_inference_image(self.post_target_files[i])
+
         #pre_target=cv2.imread(os.path.join(self.target_source_path,target_path.replace("post_disaster","pre_disaster")),cv2.IMREAD_UNCHANGED)
         msk=get_encodedx(post_target)
         post_target_label = msk.argmax(axis=2)
@@ -131,7 +133,9 @@ class EvalGen(tf.keras.utils.Sequence):
     def __init__(self, path_list,img_size=512,
                  ):
       
-        pre_dis_files,post_dis_files,_,_=get_idx_all_path(path_list)
+        pre_dis_files,post_dis_files,post_target_files,_=get_idx_all_path(path_list)
+        self.post_target_files=post_target_files
+
 
         self.pre_dis_files=pre_dis_files
         self.post_dis_files=post_dis_files
@@ -159,7 +163,7 @@ class EvalGen(tf.keras.utils.Sequence):
         target_path=self.post_dis_files[i].split("/")
         target_path=target_path[-1]
         target_path=target_path.replace("post_disaster","post_disaster_target")
-        post_target=cv2.imread(os.path.join(self.target_source_path,target_path),cv2.IMREAD_UNCHANGED)
+        post_target= create_inference_image(self.post_target_files[i])
         #pre_target=cv2.imread(os.path.join(self.target_source_path,target_path.replace("post_disaster","pre_disaster")),cv2.IMREAD_UNCHANGED)
         msk=get_encodedx(post_target)
 
@@ -314,7 +318,7 @@ class EvalUnetGen(tf.keras.utils.Sequence):
     
     def __load_data__(self,i):  
         pre_dis=cv2.imread(self.pre_dis_files[i],cv2.IMREAD_COLOR)
-        #post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
+        post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
         #post_target=create_inference_image(self.post_target_files[i])
         pre_target=create_inference_image(self.pre_target_files[i])
         pre_target=(pre_target>0.25)*1
@@ -323,32 +327,32 @@ class EvalUnetGen(tf.keras.utils.Sequence):
         #post_target=np.float32(post_target)
         pre_target=np.expand_dims(np.float32(pre_target),axis=-1)
 
-        #post_dis=np.float32(post_dis/255)
+        post_dis=np.float32(post_dis/255)
         pre_dis=np.float32(pre_dis/255)
         pre_target[np.isnan(pre_target)] = 0
         #post_target[np.isnan(post_target)] = 0
 
-        return self.split2piece(pre_dis),self.split2piece(pre_target)
-
-
+        return self.split2piece(pre_dis),self.split2piece(post_dis),self.split2piece(pre_target)
 
     def __get_batch__(self,index_interval):
         i_start=index_interval[0]
         i_end=index_interval[1]
         batch_pres=[]
+        batch_posts=[]
+
         batch_pre_targets=[]
 
         for i in range(i_start,i_end):
-          pre_dis,pre_target=self.__load_data__(i)
+          pre_dis,post_dis,pre_target=self.__load_data__(i)
           batch_pres.extend(pre_dis)
-
+          batch_posts.extend(post_dis)
           batch_pre_targets.extend(pre_target)
 
-        return np.asarray(batch_pres),np.asarray(batch_pre_targets)
+        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_pre_targets)
 
     def __getitem__(self, index):
-        pres,pre_targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
-        return (pres),(pre_targets)
+        pres,posts,pre_targets=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
+        return (pres,posts),(pre_targets)
     
     def __len__(self):
         return self.n // self.batch_size

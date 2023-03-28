@@ -59,7 +59,7 @@ class SqueezeAndExcite2D(tf.keras.layers.Layer):
     def call(self, inputs, training=True):
         x = self.global_average_pool(inputs)  # x: (batch_size, 1, 1, filters)
         x = self.squeeze_conv(x)  # x: (batch_size, 1, 1, bottleneck_filters)
-        x = self.excite_conv(x)  # x: (batch_size, 1, 1, filters)
+        x = self.excite_conv(x)  # x: (batch_size, 1, 1, filters)encoder_post_hidden_states
         x = tf.math.multiply(x, inputs)  # x: (batch_size, h, w, filters)
         return x
 
