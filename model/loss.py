@@ -14,6 +14,35 @@ M_tree_4 = np.array([[0., 1., 1., 1.,],
                      [1., 0.5, 0.7, 0.]], dtype=np.float64)
 
 
+class IoULoss(tf.keras.losses.Loss):
+ 
+    def __init__(self,weight=None,**kwargs):
+        super().__init__(**kwargs)
+        self.smooth=K.epsilon()
+
+
+    def call(self, y_true, y_pred):
+
+        intersection = K.sum(K.abs(y_true * y_pred), axis=[0,1,2])
+        union = K.sum(y_true, axis=[0,1,2]) + K.sum(y_pred, axis=[-0,1,2])
+        iou= 1- ((intersection + self.smooth) / (union + self.smooth-intersection))
+
+        iou=K.mean(iou)
+        return iou
+
+class IoUFocalLoss(tf.keras.losses.Loss):
+ 
+    def __init__(self,weights={'iou':1,'focal':5},**kwargs):
+        super().__init__(**kwargs)
+        self.focal_loss=tf.keras.losses.BinaryFocalCrossentropy(alpha=.7,gamma=2.0)
+        self.iou_loss=IoULoss()
+        self.weights=weights
+
+    def call(self, y_true, y_pred):
+        focal_loss=self.focal_loss(y_true, y_pred)*self.weights['focal']
+        iou_loss=self.iou_loss(y_true, y_pred)*self.weights['iou']
+        loss=focal_loss+iou_loss
+        return loss
 
 class JaccardLoss(tf.keras.losses.Loss):
     def __init__(self, smooth=1,**kwargs):

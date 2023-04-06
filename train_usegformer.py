@@ -1,62 +1,60 @@
 import argparse    
 from omegaconf import OmegaConf
 import tensorflow as tf
-from model.model import USegFormer,USegFormerSeperated,ChangeSegFormer
 from model.callbacks import *
 import os
-from data.dataloader2 import DataGen,EvalGen
+from data.dataloader import DataGen,EvalGen
 
-
+from utils.utils import instantiate_from_config,make_dirs
 
 parser = argparse.ArgumentParser(prog="Train")
 parser.add_argument("--config_path", type=str, required=True,help="Config Path")
 
 args = vars(parser.parse_args())
 
-conf = OmegaConf.load(args["config_path"])
-tf.keras.utils.set_random_seed(conf.seed)
+config = OmegaConf.load(args["config_path"])
+tf.keras.utils.set_random_seed(config.seed)
 
-batch_size=conf.batch_size
-epochs=conf.epochs
-train_path=conf.train_path
-test_path=conf.test_path
-checkpoint_path=conf.checkpoint_path
-img_size=conf.input_shape[1]
-unet_config=OmegaConf.load(conf.unet_config_path)
-train_ds=DataGen(train_path,batch_size=batch_size,img_size=img_size,augmentation=True)
-eval_Data=EvalGen(test_path)
+make_dirs(os.path.join(config.model.checkpoint_path,"checkpoint"))
 
-if conf.model_name=="usegformer":
-    model=USegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
-elif conf.model_name=="usegformerseperated":
-     model=USegFormerSeperated(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
-elif conf.model_name=="changesegformer":
-     model=ChangeSegFormer(conf,checkpoint_path=checkpoint_path,unet_config=unet_config,unet_checkpoint_path=conf.unet_checkpoint_path)
+checkpoint_path=os.path.join(config.model.checkpoint_path,"checkpoint")
 
-model.compile()
-returned_epoch=model.load()
+train_ds=instantiate_from_config(config.data.train)
+test_ds=instantiate_from_config(config.data.test)
 
-path_conf=os.path.join(checkpoint_path,"config.yaml")
-with open(path_conf ,'w') as file:
-       OmegaConf.save(config=conf, f=file)
-
-callbacks=[
-    LearningRateStepScheduler(conf.lr,step_warmup=conf.step_warmup),
-    SaveCheckpoint(number_epoch=epochs, monitor="val_f1_total",per_epoch=None,initial_value_threshold=0.5,  mode="max",save_best=True),
-    tf.keras.callbacks.TensorBoard(log_dir=checkpoint_path+"/logs",write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True),
-    tf.keras.callbacks.CSVLogger(os.path.join(checkpoint_path,"log.csv"), separator=",", append=True)
-
-]
-model.fit(train_ds,validation_data=eval_Data,epochs=epochs,initial_epoch=returned_epoch,callbacks=callbacks)
+model = instantiate_from_config(config.model)
 
 
-results=model.evaluate(eval_Data,return_dict=True,)
-try:
-    log_txt_path=os.path.join(checkpoint_path,"results.txt")
-    with open(log_txt_path, 'w') as f:
-        for key in list(results.keys()):
-            string=key+" :  "+str(results[key])+"\n"
-            f.write(string)
-except Exception as error:
-    print(error)
-    pass    
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=config.model.learning_rate),
+)
+#history = model.fit(train_ds, validation_data=eval_Data, epochs=35,callbacks=callbacks)
+
+def scheduler(epoch, lr):
+    if epoch==0:
+      return 0.0001
+    elif epoch % 5==0 and epoch!=0 :
+      return lr* (tf.math.exp(-0.1)**4)
+    else:
+      return lr 
+
+callbacks=[]
+callbacks.append( tf.keras.callbacks.LearningRateScheduler(scheduler))
+
+callbacks.append(
+    tf.keras.callbacks.ModelCheckpoint(
+      os.path.join(config.model.checkpoint_path,"usegformer"),
+      monitor = "val_iou_total",
+      save_best_only=True,
+      save_weights_only = True,
+      initial_value_threshold=0.35,
+      mode='max'
+  )
+)
+
+callbacks.append(
+        tf.keras.callbacks.CSVLogger(os.path.join(config.model.checkpoint_path,"log.csv"), separator=",", append=True)
+
+)
+
+model.fit(train_ds, validation_data=test_ds, epochs=config.model.epochs,callbacks=callbacks)
