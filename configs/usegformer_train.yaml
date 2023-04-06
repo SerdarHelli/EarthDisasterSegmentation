@@ -26,3 +26,8 @@ data:
     params:
       path_list:
       - "/content/hold"
+  test:
+    target: model.data.dataloader.EvalUnetGen
+    params:
+      path_list:
+      - "/content/hold"
