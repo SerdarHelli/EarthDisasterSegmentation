@@ -2,12 +2,8 @@
 
 
 from model.layers import *
-import matplotlib.pyplot as plt
 import tensorflow as tf
-import numpy as np
-import math
 import tensorflow.keras.backend as K
-import os
 from model.segformer_components import *
 from model.loss import *
 

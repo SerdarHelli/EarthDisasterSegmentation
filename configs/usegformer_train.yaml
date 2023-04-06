@@ -1,81 +1,28 @@
-num_channels: 3
-num_encoder_blocks: 4
-depths:
-- 3
-- 4
-- 6
-- 3
-sr_ratios:
-- 8
-- 4
-- 2
-- 1
-hidden_sizes:
-- 64
-- 128
-- 320
-- 512
-patch_sizes:
-- 7
-- 3
-- 3
-- 3
-use_ema: False
-ema_momentum: 0.9999
-strides:
-- 4
-- 2
-- 2
-- 2
-num_attention_heads:
-- 1
-- 2
-- 5
-- 8
-mlp_ratios:
-- 4
-- 4
-- 4
-- 4
-hidden_dropout_prob: 0.1
-attention_probs_dropout_prob: 0.1
-output_hidden_states: false
-output_attentions: false
-gradient_clip_value: 1
-classifier_dropout_prob: 0.0
-initializer_range: 0.02
-use_return_dict: true
-drop_path_rate: 0.1
-layer_norm_eps: 1.0e-06
-reshape_last_stage: true
-seed: 1234
-input_shape:
-- 512
-- 512
-- 3
-loss_weights:
-  - 1
-  - 11
-weights:
-  - 0.4
-  - 0.4
-  - 0.6
-  - 0.6
-  - 0.4
-decoder_hidden_size: 512
-semantic_loss_ignore_index: 255
-num_labels: 5
-batch_size: 4
-epochs: 25
-lr: 0.0001
-weight_decay: 1.0e-06
-train_path: 
-- "/content/train"
-test_path:
-- "/content/hold"
-checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/segformer"
-unet_checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans"
-unet_config_path: "/content/drive/MyDrive/xview2_checkpoint2/unet_trans/config.yaml"
-step_warmup: 1000
-threshold_metric: 0.25
-model_name: changesegformer
+model:
+  learning_rate: 0.0001
+  epochs: 70
+  seed: 1234
+  target: model.model.build_model
+  checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer2/"
+  params:
+    shape_input: 
+    - 3
+    - 512
+    - 512
+    pretrainedsegformer: "nvidia/segformer-b3-finetuned-ade-512-512"
+ 
+data:
+  train:
+    target: model.data.dataloader.DataGen
+    params:
+      path_list:
+      - "/content/train"
+      - "/content/tier3"
+      batch_size: 4
+      img_size : 512
+      augmentation : True
+  test:
+    target: model.data.dataloader.EvalGen
+    params:
+      path_list:
+      - "/content/hold"

@@ -12,3 +12,9 @@ def get_obj_from_str(string, reload=False):
         module_imp = importlib.import_module(module)
         importlib.reload(module_imp)
     return getattr(importlib.import_module(module, package=None), cls)
+
+
+def make_dirs(path):
+    import os
+    if not os.path.isdir(path):
+         os.makedirs(path)
