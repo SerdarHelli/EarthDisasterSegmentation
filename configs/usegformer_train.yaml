@@ -1,19 +1,20 @@
 model:
   learning_rate: 0.0001
   epochs: 70
-  seed: 1234
-  target: model.model.build_model
-  checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer2/"
+  target: model.model.build_modelv2
+  checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer2_v2/"
   params:
     shape_input: 
     - 3
     - 512
     - 512
     pretrainedsegformer: "nvidia/segformer-b3-finetuned-ade-512-512"
- 
+
+seed: 1234
+
 data:
   train:
-    target: model.data.dataloader.DataGen
+    target: data.dataloader.DataGen
     params:
       path_list:
       - "/content/train"
@@ -22,12 +23,12 @@ data:
       img_size : 512
       augmentation : True
   test:
-    target: model.data.dataloader.EvalGen
+    target: data.dataloader.EvalGen
     params:
       path_list:
       - "/content/hold"
-  test:
-    target: model.data.dataloader.EvalUnetGen
+  test_local:
+    target: data.dataloader.EvalUnetGen
     params:
       path_list:
       - "/content/hold"

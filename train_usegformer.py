@@ -54,4 +54,4 @@ callbacks.append(
 
 )
 callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=os.path.join(config.model.checkpoint_path,"logs"),write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True))
-model.fit(train_ds, validation_data=test_ds, epochs=config.model.epochs,callbacks=callbacks)
+model.fit(train_ds, validation_data=test_ds, epochs=config.model.epochs,callbacks=callbacks,verbose=2)
