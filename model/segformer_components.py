@@ -275,6 +275,7 @@ class SegFormerClassifier(tf.keras.Model):
 
 
 
+
 class SegformerDecodeHeadV2(TFSegformerPreTrainedModel):
     def __init__(self,config, **kwargs):
         super().__init__( config,**kwargs)
@@ -288,14 +289,14 @@ class SegformerDecodeHeadV2(TFSegformerPreTrainedModel):
 
         self.mlps = mlps
 
-        self.diff0 = Difference(256,drop_path_rate=0.1,name="conv_decoder_diff_0")
-        self.pred0 = ConvBlock(256,drop_path_rate=0.1,name="conv_decoder_pred_0")
-        self.diff1 = Difference(256,drop_path_rate=0.1,name="conv_decoder_diff_1")
-        self.pred1 = ConvBlock(256,drop_path_rate=0.1,name="conv_decoder_pred_1")
-        self.diff2 = Difference(256,drop_path_rate=0.1,name="conv_decoder_diff_2")
-        self.pred2 = ConvBlock(256,drop_path_rate=0.1,name="conv_decoder_pred_2")
-        self.diff3 = Difference(256,drop_path_rate=0.1,name="conv_decoder_diff_3")
-        self.pred3 = ConvBlock(256,drop_path_rate=0.1,name="conv_decoder_pred_3")
+        self.diff0 = Difference(256)
+        self.pred0 = ConvBlock(256,drop_path_rate=0.2,name="conv_decoder_pred_0")
+        self.diff1 = Difference(256)
+        self.pred1 = ConvBlock(256,drop_path_rate=0.2,name="conv_decoder_pred_1")
+        self.diff2 = Difference(256)
+        self.pred2 = ConvBlock(256,drop_path_rate=0.2,name="conv_decoder_pred_2")
+        self.diff3 = Difference(256)
+        self.pred3 = ConvBlock(256,drop_path_rate=0.2,name="conv_decoder_pred_3")
         self.res0 =ResBlock(256//2)
         self.upsample0 =UpSample(256//2)
         self.res1 =ResBlock(128//2)
@@ -378,30 +379,26 @@ class SegformerDecodeHeadV2(TFSegformerPreTrainedModel):
             all_hidden_states_post.append(encoder_hidden_state_post)
 
 
-        hidden_states_0=tf.concat([all_hidden_states_pre[0],all_hidden_states_post[0]],axis=-1)
-        hidden_states_0x=self.diff0(hidden_states_0)
+        hidden_states_0x=self.diff0(all_hidden_states_pre[0],all_hidden_states_post[0])
         hidden_states_0=self.pred0(hidden_states_0x)
         hidden_states_0 = tf.image.resize(hidden_states_0, size=upsample_resolution, method="bilinear")
         all_hidden_states.append(hidden_states_0)
 
 
-        hidden_states_1=tf.concat([all_hidden_states_pre[1],all_hidden_states_post[1]],axis=-1)
-        hid_sub1= tf.image.resize(hidden_states_0, size=(tf.shape(hidden_states_1)[1],tf.shape(hidden_states_1)[2]), method="bilinear")
-        hidden_states_1x=self.diff1(hidden_states_1)+hid_sub1
+        hid_sub1= tf.image.resize(hidden_states_0, size=(tf.shape(all_hidden_states_pre[1])[1],tf.shape(all_hidden_states_pre[1])[2]), method="bilinear")
+        hidden_states_1x=self.diff1(all_hidden_states_pre[1],all_hidden_states_post[1])+hid_sub1
         hidden_states_1=self.pred1(hidden_states_1x)
         hidden_states_1 = tf.image.resize(hidden_states_1, size=upsample_resolution, method="bilinear")
         all_hidden_states.append(hidden_states_1)
 
-        hidden_states_2=tf.concat([all_hidden_states_pre[2],all_hidden_states_post[2]],axis=-1)
-        hid_sub2= tf.image.resize(hidden_states_1, size=(tf.shape(hidden_states_2)[1],tf.shape(hidden_states_2)[2]), method="bilinear")
-        hidden_states_2x=self.diff2(hidden_states_2)+hid_sub2
+        hid_sub2= tf.image.resize(hidden_states_1, size=(tf.shape(all_hidden_states_pre[2])[1],tf.shape(all_hidden_states_pre[2])[2]), method="bilinear")
+        hidden_states_2x=self.diff2(all_hidden_states_pre[2],all_hidden_states_post[2])+hid_sub2
         hidden_states_2=self.pred2(hidden_states_2x)
         hidden_states_2 = tf.image.resize(hidden_states_2, size=upsample_resolution, method="bilinear")
         all_hidden_states.append(hidden_states_2)
 
-        hidden_states_3=tf.concat([all_hidden_states_pre[3],all_hidden_states_post[3]],axis=-1)
-        hid_sub3= tf.image.resize(hidden_states_2, size=(tf.shape(hidden_states_3)[1],tf.shape(hidden_states_3)[2]), method="bilinear")
-        hidden_states_3x=self.diff3(hidden_states_3)+hid_sub3
+        hid_sub3= tf.image.resize(hidden_states_2, size=(tf.shape(all_hidden_states_pre[3])[1],tf.shape(all_hidden_states_pre[3])[2]), method="bilinear")
+        hidden_states_3x=self.diff3(all_hidden_states_pre[3],all_hidden_states_post[3])+hid_sub3
         hidden_states_3=self.pred3(hidden_states_3x)
         hidden_states_3 = tf.image.resize(hidden_states_3, size=upsample_resolution, method="bilinear")
         all_hidden_states.append(hidden_states_3)
@@ -444,16 +441,16 @@ class SegformerDecodeHeadV2(TFSegformerPreTrainedModel):
         return logits,logits2
 
 class SegFormerClassifierV2(tf.keras.Model):
-    def __init__(self, segformer: Optional[TFSegformerModel] = None):
+    def __init__(self, segformer_pretrained,shape=(512,512)):
         super().__init__()
-        self.config: SegformerConfig = SegformerConfig.from_pretrained("nvidia/segformer-b3-finetuned-ade-512-512")
+        self.config: SegformerConfig = SegformerConfig.from_pretrained(segformer_pretrained)
   
-        self.segformer: TFSegformerModel = TFSegformerModel.from_pretrained("nvidia/segformer-b3-finetuned-ade-512-512")
+        self.segformer: TFSegformerModel = TFSegformerModel.from_pretrained(segformer_pretrained)
         #self.segformer_post: TFSegformerModel = TFSegformerModel.from_pretrained("nvidia/segformer-b1-finetuned-ade-512-512")
         self.config.num_labels = 5
         #self.config.hidden_sizes = [hidden_size * 2 for hidden_size in self.config.hidden_sizes]
         self.decode_head: SegformerDecodeHead = SegformerDecodeHeadV2(self.config)
-        self.segformer_input_size = (512, 512)
+        self.segformer_input_size = shape
 
 
 
