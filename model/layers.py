@@ -1,6 +1,10 @@
 
 import tensorflow as tf
-from model.segformer import *
+
+try:
+    import tensorflow_probability as tfp
+except:
+    pass
 
 def getNorm(norm_str,eps=1e-6):
     x=None
@@ -658,4 +662,44 @@ class SpatialTransformer(tf.keras.layers.Layer):
         x=self.proj_out(x) + x_in
 
         return self.proj_out_final(x)
+    
+
+class Difference(tf.keras.layers.Layer):
+    def __init__(self, channels):
+        super().__init__()
+        self.epsilon = 1e-5
+        self.proj_1 =  tf.keras.layers.Conv2D(channels,kernel_size=3,padding="same", kernel_initializer='he_normal')
+        self.proj_2 =  tf.keras.layers.Conv2D(channels,kernel_size=3,padding="same", kernel_initializer='he_normal')
+        self.proj_3 = tf.keras.layers.Conv2D(channels,kernel_size=3,padding="same", kernel_initializer='he_normal')
+        self.proj_fusion = tf.keras.layers.Conv2D(channels,kernel_size=3,padding="same", kernel_initializer='he_normal')
+
+        self.proj_out_final = tf.keras.layers.Conv2D(channels,kernel_size=1,padding="same", kernel_initializer='he_normal')
+
+
+    def call(self, input_tensor1,input_tensor2):
+
+        abs_dif=tf.math.abs(input_tensor1-input_tensor2)
+        mean1, var1 = tf.nn.moments(abs_dif, axes=(0, 1, 2), keepdims=True)
+        std1 = tf.sqrt(var1 + self.epsilon)
+        normalized_abs_dif = (abs_dif - mean1) / std1
+        x1=self.proj_1(normalized_abs_dif)
+
+        tensor_sum=input_tensor1+input_tensor2
+        mean2, var2 = tf.nn.moments(tensor_sum, axes=(0, 1, 2), keepdims=True)
+        std2 = tf.sqrt(var2 + self.epsilon)
+        normalized_tensor_sum = (tensor_sum - mean2) / std2
+        x2=self.proj_2(normalized_tensor_sum)
+
+        tensor_concat=tf.concat([input_tensor1,input_tensor2],axis=-1)
+        mean3, var3 = tf.nn.moments(tensor_concat, axes=(0, 1, 2), keepdims=True)
+        std3 = tf.sqrt(var3 + self.epsilon)
+        normalized_tensor_concat = (tensor_concat - mean3) / std3
+        x3=self.proj_3(normalized_tensor_concat)
+
+        fusion=tf.concat([x1,x2,x3],axis=-1)
+        fusion=self.proj_fusion(fusion)
+
+        corr = tfp.stats.correlation(input_tensor1,input_tensor2, sample_axis=-1, event_axis=None,keepdims=True,)
+
+        return self.proj_out_final(fusion*corr)
     

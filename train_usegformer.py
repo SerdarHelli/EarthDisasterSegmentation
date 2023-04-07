@@ -1,10 +1,7 @@
 import argparse    
 from omegaconf import OmegaConf
 import tensorflow as tf
-from model.callbacks import *
 import os
-from data.dataloader import DataGen,EvalGen
-
 from utils.utils import instantiate_from_config,make_dirs
 
 parser = argparse.ArgumentParser(prog="Train")
@@ -56,5 +53,5 @@ callbacks.append(
         tf.keras.callbacks.CSVLogger(os.path.join(config.model.checkpoint_path,"log.csv"), separator=",", append=True)
 
 )
-
+callbacks.append(tf.keras.callbacks.TensorBoard(log_dir=os.path.join(config.model.checkpoint_path,"logs"),write_graph=False, profile_batch=5,histogram_freq=1,write_steps_per_second=True))
 model.fit(train_ds, validation_data=test_ds, epochs=config.model.epochs,callbacks=callbacks)

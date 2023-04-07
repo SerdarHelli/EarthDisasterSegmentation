@@ -1,6 +1,4 @@
 
-
-
 from model.layers import *
 import tensorflow as tf
 import tensorflow.keras.backend as K
@@ -161,5 +159,14 @@ def build_model(shape_input,segformer_pretrained,shape=(512,512)):
   input_post= tf.keras.Input(shape=shape_input,name="post_image")
   input_pre = tf.keras.Input(shape=shape_input,name="pre_image")
   output,output2=SegFormerClassifier(segformer_pretrained=segformer_pretrained,shape=shape)(input_pre,input_post)
+  model = UsegFormerClass(inputs=[input_pre,input_post], outputs=[output,output2])
+  return model
+
+
+
+def build_modelv2(shape_input,segformer_pretrained,shape=(512,512)):
+  input_post= tf.keras.Input(shape=shape_input,name="post_image")
+  input_pre = tf.keras.Input(shape=shape_input,name="pre_image")
+  output,output2=SegFormerClassifierV2(segformer_pretrained=segformer_pretrained,shape=shape)(input_pre,input_post)
   model = UsegFormerClass(inputs=[input_pre,input_post], outputs=[output,output2])
   return model
