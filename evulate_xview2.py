@@ -39,7 +39,7 @@ class PathHandler:
         img = np.array(Image.open(path))
         assert img.dtype == np.uint8, f"{path.name} is of wrong format {img.dtype} - should be np.uint8"
         assert set(np.unique(img)) <= {0,1,2,3,4}, f"values must ints 0-4, found {np.unique(img)}, path: {path}"
-        assert img.shape == (1024,1024), f"{path} must be a 1024x1024 image"
+        assert img.shape == (512,512), f"{path} must be a 1024x1024 image"
         return img
     
     def load_images(self):
