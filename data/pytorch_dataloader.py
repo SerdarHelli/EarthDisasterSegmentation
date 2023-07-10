@@ -74,7 +74,7 @@ class DataGen(Dataset):
 
         if self.augmentation==True:
             transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target_onehot,mask1=post_target_label)
-            if random.random() > 0.7:
+            if random.random() > 0.85:
                 transformed = self.transform(image=pre_dis,image1=post_dis, mask=post_target_onehot,mask1=post_target_label)
             else:
                 transformed = self.transform_no_aug(image=pre_dis,image1=post_dis, mask=post_target_onehot,mask1=post_target_label)
@@ -178,5 +178,3 @@ class EvalGen(Dataset):
     
     def __len__(self):
         return self.n 
-
-

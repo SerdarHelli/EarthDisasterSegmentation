@@ -196,6 +196,78 @@ class EvalGen(tf.keras.utils.Sequence):
     
     def __len__(self):
         return self.n // self.batch_size
+    
+class EvalGen2(tf.keras.utils.Sequence):
+    
+    def __init__(self, path_list,img_size=512,
+                 ):
+      
+        pre_dis_files,post_dis_files,post_target_files,pre_target_files=get_idx_all_path(path_list)
+        self.post_target_files=post_target_files
+
+        self.pre_target_files=pre_target_files
+
+        self.pre_dis_files=pre_dis_files
+        self.post_dis_files=post_dis_files
+        self.n = len(self.post_dis_files)
+        self.batch_size=1
+        self.img_size=img_size
+        self.target_source_path=os.path.join(path_list[0],"targets")
+
+    def split2piece(self,im):
+        #To Do 
+        #split other for imgsize
+        if len(im.shape)==3:
+            pieces=[im[:512,:512,:],im[:512,512:,:],im[512:,:512,:],im[512:,512:,:]]
+
+        elif len(im.shape)==2:
+            pieces=[im[:512,:512],im[:512,512:],im[512:,:512],im[512:,512:]]
+        else:
+            raise("Invalid Shape On Masks")
+
+        return pieces
+    
+    def __load_data__(self,i):  
+        pre_dis=cv2.imread(self.pre_dis_files[i],cv2.IMREAD_COLOR)
+        post_dis=cv2.imread(self.post_dis_files[i],cv2.IMREAD_COLOR)
+        target_path=self.post_dis_files[i].split("/")
+        target_path=target_path[-1]
+        target_path=target_path.replace("post_disaster","post_disaster_target")
+        post_target= create_inference_image(self.post_target_files[i])
+        pre_target=create_inference_image(self.pre_target_files[i])
+        msk=get_encodedx(post_target)
+
+        post_target = msk.argmax(axis=2)
+
+        post_dis=np.float32(post_dis/255)
+        pre_dis=np.float32(pre_dis/255)
+        return self.split2piece(pre_dis),self.split2piece(post_dis),self.split2piece(pre_target),self.split2piece(post_target)
+
+
+    def __get_batch__(self,index_interval):
+        i_start=index_interval[0]
+        i_end=index_interval[1]
+        batch_pres=[]
+        batch_posts=[]
+        batch_post_label_targets=[]
+        batch_post_onehot_targets=[]
+
+        for i in range(i_start,i_end):
+          pre_dis,post_dis,post_target_onehot,post_target_label=self.__load_data__(i)
+          batch_pres.extend(pre_dis)
+          batch_posts.extend(post_dis)
+          batch_post_onehot_targets.extend(post_target_onehot)
+          batch_post_label_targets.extend(post_target_label)
+
+        return np.asarray(batch_pres),np.asarray(batch_posts),np.asarray(batch_post_onehot_targets),np.asarray(batch_post_label_targets)
+
+    def __getitem__(self, index):
+        pres,posts,post_target_onehots,post_target_labels=self.__get_batch__(index_interval=[index * self.batch_size,(index + 1) * self.batch_size])
+        return (pres,posts),(post_target_onehots,post_target_labels)
+    
+    def __len__(self):
+        return self.n // self.batch_size
+    
 class UnetDataGen(tf.keras.utils.Sequence):
     
     def __init__(self, path_list,

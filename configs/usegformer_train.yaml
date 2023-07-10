@@ -1,7 +1,7 @@
 model:
   learning_rate: 0.0001
   epochs: 70
-  target: model.model.build_modelv2
+  target: model.tensorflow_models.changesegformer.build_model
   checkpoint_path: "/content/drive/MyDrive/xview2_checkpoint2/usegformer2_v2/"
   params:
     shape_input: 
